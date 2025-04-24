@@ -117,8 +117,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # URLs for the stamp and signature images (replace with your Google Drive URLs)
-PAID_STAMP_URL = "https://imgur.com/a/MiC6y1D"
-SIGNATURE_URL = "https://imgur.com/a/KzmL1Rb"
+PAID_STAMP_URL = "https://www.dropbox.com/scl/fi/juk2tb9l8b9onjck9v5v8/paid-stamp.png?rlkey=19lukm1a9wygjk51u9xfixz2m&st=ur9uzm64&dl=0"
+SIGNATURE_URL = "https://www.dropbox.com/scl/fi/h2cjs36w0bf5z4g66gsxu/signature.png?rlkey=je7pqhjqaxuka461158nz6vh5&st=vevkqjmi&dl=0"
 
 # Reuse your existing classes and functions
 class InvoiceData:
