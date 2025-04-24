@@ -332,9 +332,14 @@ def add_paid_stamp_and_signature(doc):
         stamp_run = stamp_paragraph.add_run()
         stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
 
-        # Set text wrapping to "In Front of Text" and absolute position for stamp
-        stamp_element = stamp_picture._element
-        stamp_drawing = stamp_element.xpath(".//wp:docPr/..")[0]
+        # Access the run's XML element to find the drawing element
+        stamp_run_element = stamp_run._r
+        stamp_drawing_elements = stamp_run_element.xpath('.//w:drawing')
+        if not stamp_drawing_elements:
+            raise Exception("Could not find drawing element for stamp image")
+        stamp_drawing = stamp_drawing_elements[0]
+
+        # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.xml = f"""
             <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                 <wp:simplePos x="0" y="0"/>
@@ -358,9 +363,14 @@ def add_paid_stamp_and_signature(doc):
         signature_run = signature_paragraph.add_run()
         signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
 
-        # Set text wrapping to "In Front of Text" and absolute position for signature
-        signature_element = signature_picture._element
-        signature_drawing = signature_element.xpath(".//wp:docPr/..")[0]
+        # Access the run's XML element to find the drawing element
+        signature_run_element = signature_run._r
+        signature_drawing_elements = signature_run_element.xpath('.//w:drawing')
+        if not signature_drawing_elements:
+            raise Exception("Could not find drawing element for signature image")
+        signature_drawing = signature_drawing_elements[0]
+
+        # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.xml = f"""
             <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                 <wp:simplePos x="0" y="0"/>
