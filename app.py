@@ -15,6 +15,7 @@ import json
 import requests
 from PIL import Image
 import io
+import re
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -116,9 +117,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# URLs for the stamp and signature images (replace with your Google Drive URLs)
-PAID_STAMP_URL = "https://www.dropbox.com/scl/fi/juk2tb9l8b9onjck9v5v8/paid-stamp.png?rlkey=19lukm1a9wygjk51u9xfixz2m&st=ur9uzm64&dl=0"
-SIGNATURE_URL = "https://www.dropbox.com/scl/fi/h2cjs36w0bf5z4g66gsxu/signature.png?rlkey=je7pqhjqaxuka461158nz6vh5&st=vevkqjmi&dl=0"
+# Direct download URLs for the stamp and signature images
+PAID_STAMP_URL = "https://drive.google.com/uc?export=download&id=1W9PL0DtP0TUk7IcGiMD_ZuLddtQ8gjNo"
+SIGNATURE_URL = "https://drive.google.com/uc?export=download&id=1OaXfq9bAj2sxKQJzX1oFmNmHRv1EwG0E"
 
 # Reuse your existing classes and functions
 class InvoiceData:
@@ -258,28 +259,54 @@ def style_financial_table(doc, invoice_data):
 
 def fetch_image(url):
     try:
-        # Make the request with a user-agent to avoid Google Drive blocking
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
-        response = requests.get(url, headers=headers, stream=True)
+        session = requests.Session()
+        response = session.get(url, headers=headers, stream=True, allow_redirects=True)
         
-        # Check if the request was successful
         if response.status_code != 200:
             raise Exception(f"Failed to fetch image from {url}. Status code: {response.status_code}")
 
-        # Check the content type to ensure it's an image
         content_type = response.headers.get('Content-Type', '')
         if not content_type.startswith('image/'):
-            raise Exception(f"URL {url} did not return an image. Content-Type: {content_type}")
+            # Check if this is a Google Drive confirmation page
+            response_text = response.text
+            if "google.com" in response_text and "confirm=" in response_text:
+                # Extract the confirmation token
+                confirm_match = re.search(r'confirm=([a-zA-Z0-9\-_]+)', response_text)
+                if confirm_match:
+                    confirm_token = confirm_match.group(1)
+                    # Retry the request with the confirmation token
+                    confirm_url = f"{url}&confirm={confirm_token}"
+                    response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True)
+                    content_type = response.headers.get('Content-Type', '')
+                    if not content_type.startswith('image/'):
+                        response_content = response.text[:200]
+                        raise Exception(
+                            f"URL {url} still did not return an image after confirmation. "
+                            f"Content-Type: {content_type}. "
+                            f"Response preview: {response_content}"
+                        )
+                else:
+                    response_content = response_text[:200]
+                    raise Exception(
+                        f"URL {url} returned a confirmation page, but no confirmation token found. "
+                        f"Content-Type: {content_type}. "
+                        f"Response preview: {response_content}"
+                    )
+            else:
+                response_content = response_text[:200]
+                raise Exception(
+                    f"URL {url} did not return an image. "
+                    f"Content-Type: {content_type}. "
+                    f"Response preview: {response_content}"
+                )
 
-        # Load the image data into a BytesIO object
         image_data = io.BytesIO(response.content)
-        
-        # Verify the image can be opened
         img = Image.open(image_data)
-        img.verify()  # Verify that it's a valid image
-        image_data.seek(0)  # Reset the stream position after verification
+        img.verify()
+        image_data.seek(0)
         
         return image_data
 
@@ -288,15 +315,12 @@ def fetch_image(url):
 
 def add_paid_stamp_and_signature(doc):
     try:
-        # Fetch images from the URLs
         stamp_data = fetch_image(PAID_STAMP_URL)
         signature_data = fetch_image(SIGNATURE_URL)
 
-        # Add paragraph for stamp and signature
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-        # Add PAID stamp
         stamp_img = Image.open(stamp_data)
         stamp_io = io.BytesIO()
         stamp_img.save(stamp_io, format="PNG")
@@ -304,7 +328,6 @@ def add_paid_stamp_and_signature(doc):
         run = p.add_run()
         run.add_picture(stamp_io, width=Inches(1.5))
 
-        # Add signature below stamp
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         signature_img = Image.open(signature_data)
