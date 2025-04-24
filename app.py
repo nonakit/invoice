@@ -340,9 +340,11 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find drawing element for stamp image")
         stamp_drawing = stamp_drawing_elements[0]
 
-        # Convert the drawing element to a string to manipulate it
-        stamp_drawing_xml = ET.tostring(stamp_drawing, encoding='unicode')
-        stamp_drawing_tail = stamp_drawing_xml.split('<wp:cNvGraphicFramePr/>')[1]
+        # Find the a:graphic element to preserve the image data
+        graphic_elements = stamp_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
+        if not graphic_elements:
+            raise Exception("Could not find a:graphic element in stamp drawing")
+        graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode')
 
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -360,7 +362,7 @@ def add_paid_stamp_and_signature(doc):
                     <wp:wrapNone/>
                     <wp:docPr id="1" name="Picture 1"/>
                     <wp:cNvGraphicFramePr/>
-                    {stamp_drawing_tail}
+                    {graphic_xml}
                 </wp:anchor>
             </w:drawing>
         """))
@@ -377,9 +379,11 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find drawing element for signature image")
         signature_drawing = signature_drawing_elements[0]
 
-        # Convert the drawing element to a string to manipulate it
-        signature_drawing_xml = ET.tostring(signature_drawing, encoding='unicode')
-        signature_drawing_tail = signature_drawing_xml.split('<wp:cNvGraphicFramePr/>')[1]
+        # Find the a:graphic element to preserve the image data
+        graphic_elements = signature_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
+        if not graphic_elements:
+            raise Exception("Could not find a:graphic element in signature drawing")
+        graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode')
 
         # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
@@ -397,7 +401,7 @@ def add_paid_stamp_and_signature(doc):
                     <wp:wrapNone/>
                     <wp:docPr id="2" name="Picture 2"/>
                     <wp:cNvGraphicFramePr/>
-                    {signature_drawing_tail}
+                    {graphic_xml}
                 </wp:anchor>
             </w:drawing>
         """))
@@ -530,7 +534,9 @@ with tab1:
             st.write(f"Invoice Date: {invoice_date}")
         else:
             st.session_state.manual_invoice_date = st.date_input(
-                "Select Invoice Date",
+                "
+
+Select Invoice Date",
                 value=st.session_state.manual_invoice_date,
                 key="manual_invoice_date_picker"
             )
