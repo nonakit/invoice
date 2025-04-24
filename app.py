@@ -116,7 +116,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# URLs for the stamp and signature images (replace with your GitHub URLs)
+# URLs for the stamp and signature images (replace with your Google Drive URLs)
 PAID_STAMP_URL = "https://drive.google.com/file/d/1W9PL0DtP0TUk7IcGiMD_ZuLddtQ8gjNo/view?usp=sharing"
 SIGNATURE_URL = "https://drive.google.com/file/d/1OaXfq9bAj2sxKQJzX1oFmNmHRv1EwG0E/view?usp=sharing"
 
@@ -128,9 +128,9 @@ class InvoiceData:
         self.items = []
         self.financials = {}
         self.apply_late_fee = False
-        self.mark_as_paid = False  # New attribute for paid status
+        self.mark_as_paid = False
         self.invoice_number = ""
-        self.signature = ""  # Placeholder for signature (not used since we're using an image)
+        self.signature = ""
 
     def to_dict(self):
         return {
@@ -256,37 +256,68 @@ def style_financial_table(doc, invoice_data):
             run.font.name = "Courier New"
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
 
+def fetch_image(url):
+    try:
+        # Make the request with a user-agent to avoid Google Drive blocking
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, stream=True)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            raise Exception(f"Failed to fetch image from {url}. Status code: {response.status_code}")
+
+        # Check the content type to ensure it's an image
+        content_type = response.headers.get('Content-Type', '')
+        if not content_type.startswith('image/'):
+            raise Exception(f"URL {url} did not return an image. Content-Type: {content_type}")
+
+        # Load the image data into a BytesIO object
+        image_data = io.BytesIO(response.content)
+        
+        # Verify the image can be opened
+        img = Image.open(image_data)
+        img.verify()  # Verify that it's a valid image
+        image_data.seek(0)  # Reset the stream position after verification
+        
+        return image_data
+
+    except Exception as e:
+        raise Exception(f"Error fetching image from {url}: {str(e)}")
+
 def add_paid_stamp_and_signature(doc):
-    # Fetch images from GitHub
-    stamp_response = requests.get(PAID_STAMP_URL)
-    signature_response = requests.get(SIGNATURE_URL)
+    try:
+        # Fetch images from the URLs
+        stamp_data = fetch_image(PAID_STAMP_URL)
+        signature_data = fetch_image(SIGNATURE_URL)
 
-    if stamp_response.status_code != 200 or signature_response.status_code != 200:
-        raise Exception("Failed to fetch stamp or signature images from GitHub")
+        # Add paragraph for stamp and signature
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    # Add paragraph for stamp and signature
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        # Add PAID stamp
+        stamp_img = Image.open(stamp_data)
+        stamp_io = io.BytesIO()
+        stamp_img.save(stamp_io, format="PNG")
+        stamp_io.seek(0)
+        run = p.add_run()
+        run.add_picture(stamp_io, width=Inches(1.5))
 
-    # Add PAID stamp
-    stamp_img = Image.open(io.BytesIO(stamp_response.content))
-    stamp_io = io.BytesIO()
-    stamp_img.save(stamp_io, format="PNG")
-    stamp_io.seek(0)
-    run = p.add_run()
-    run.add_picture(stamp_io, width=Inches(1.5))
+        # Add signature below stamp
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        signature_img = Image.open(signature_data)
+        signature_io = io.BytesIO()
+        signature_img.save(signature_io, format="PNG")
+        signature_io.seek(0)
+        run = p.add_run()
+        run.add_picture(signature_io, width=Inches(1.0))
 
-    # Add signature below stamp
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    signature_img = Image.open(io.BytesIO(signature_response.content))
-    signature_io = io.BytesIO()
-    signature_img.save(signature_io, format="PNG")
-    signature_io.seek(0)
-    run = p.add_run()
-    run.add_picture(signature_io, width=Inches(1.0))
+        return doc
 
-    return doc
+    except Exception as e:
+        raise Exception(f"Failed to add stamp and signature: {str(e)}")
 
 def get_next_invoice_number():
     count_file = "invoice_count.txt"
@@ -314,7 +345,6 @@ def validate_date_format(date_str):
         return False
 
 def save_invoice_data(invoice_data):
-    # Load existing invoices
     invoice_db = "invoices.json"
     if os.path.exists(invoice_db):
         with open(invoice_db, 'r') as f:
@@ -346,7 +376,6 @@ def generate_invoice(invoice_data):
     doc = update_items_table(doc, invoice_data.items)
     style_financial_table(doc, invoice_data)
 
-    # Add "PAID" stamp and signature if marked as paid
     if invoice_data.mark_as_paid:
         doc = add_paid_stamp_and_signature(doc)
 
@@ -355,26 +384,21 @@ def generate_invoice(invoice_data):
             run.font.name = "Courier New"
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
     
-    # Generate DOCX
     docx_output = io.BytesIO()
     doc.save(docx_output)
     docx_output.seek(0)
     
-    # Generate PDF using temporary files with pypandoc
     temp_docx = f"temp_{invoice_data.invoice_number}.docx"
     temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
     doc.save(temp_docx)
     
-    # Convert DOCX to PDF using pypandoc
     pypandoc.convert_file(temp_docx, 'pdf', outputfile=temp_pdf)
     
-    # Read PDF into BytesIO for download
     pdf_output = io.BytesIO()
     with open(temp_pdf, 'rb') as f:
         pdf_output.write(f.read())
     pdf_output.seek(0)
     
-    # Clean up temporary files
     if os.path.exists(temp_docx):
         os.remove(temp_docx)
     if os.path.exists(temp_pdf):
@@ -387,12 +411,9 @@ def generate_invoice(invoice_data):
 st.title("📄 Invoice Generator")
 st.markdown("Create professional invoices with ease using this streamlined tool.")
 
-# Tabs for creating and viewing invoices
 tab1, tab2 = st.tabs(["Create Invoice", "View Invoices"])
 
-# Tab 1: Create Invoice
 with tab1:
-    # Initialize session state for items and invoice date
     if 'item_list' not in st.session_state:
         st.session_state.item_list = [{"description": "", "unit_price": 0.0, "quantity": 0.0}]
 
@@ -402,7 +423,6 @@ with tab1:
     if 'manual_invoice_date' not in st.session_state:
         st.session_state.manual_invoice_date = datetime.now()
 
-    # Client Information
     st.header("Client Information")
     with st.form(key="client_form"):
         client_name = st.text_input("Client Name", placeholder="Enter client name")
@@ -411,13 +431,11 @@ with tab1:
         client_address = st.text_area("Client Address", placeholder="Enter address")
         client_submit = st.form_submit_button("Save Client Info")
 
-    # Invoice Details
     st.header("Invoice Details")
     with st.form(key="invoice_form"):
         default_invoice_number, invoice_count = get_next_invoice_number()
         invoice_number = st.text_input("Invoice Number", value=default_invoice_number, help="Invoice number must start with 'INV2025'")
         
-        # Invoice Date with manual input option using date picker
         st.session_state.use_today = st.checkbox("Use Today's Date", value=st.session_state.use_today, key="use_today_checkbox")
         if st.session_state.use_today:
             invoice_date = datetime.now().strftime("%d.%m.%Y")
@@ -431,20 +449,16 @@ with tab1:
             invoice_date = st.session_state.manual_invoice_date.strftime("%d.%m.%Y")
             st.write(f"Selected Invoice Date: {invoice_date}")
         
-        # Due Date with date picker
         due_date_obj = st.date_input("Select Due Date", value=datetime.now(), key="due_date_picker")
         due_date = due_date_obj.strftime("%d.%m.%Y")
         
         invoice_submit = st.form_submit_button("Save Invoice Details")
 
-    # Items
     st.header("Items")
-    # Ensure item_list is always a list
     if not isinstance(st.session_state.item_list, list):
         st.warning("Item list was corrupted. Resetting to default.")
         st.session_state.item_list = [{"description": "", "unit_price": 0.0, "quantity": 0.0}]
 
-    # Functions to manage items
     def add_item():
         st.session_state.item_list.append({"description": "", "unit_price": 0.0, "quantity": 0.0})
 
@@ -452,7 +466,6 @@ with tab1:
         if len(st.session_state.item_list) > 1:
             st.session_state.item_list.pop(index)
 
-    # Display and edit items
     for i in range(len(st.session_state.item_list)):
         col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
         with col1:
@@ -479,10 +492,8 @@ with tab1:
             if st.button("✕", key=f"delete_{i}"):
                 remove_item(i)
 
-    # Add item button
     st.button("Add Item", on_click=add_item)
 
-    # Financial Details
     st.header("Financial Details")
     with st.form(key="financial_form"):
         tax_rate = st.number_input("Tax Rate (%)", min_value=0.0, value=0.0, help="Enter tax rate as a percentage")
@@ -490,10 +501,8 @@ with tab1:
         apply_late_fee = st.checkbox("Apply Late Fee (2%)", value=False, help="Check to apply a 2% late fee")
         financial_submit = st.form_submit_button("Save Financial Details")
 
-    # Generate Invoice
     if st.button("Generate Invoice"):
         try:
-            # Validate inputs
             if not all([client_name, client_phone, client_email, client_address]):
                 st.error("All client info fields are required")
             elif not all([invoice_number, invoice_date, due_date]):
@@ -540,11 +549,8 @@ with tab1:
                     '[grandtotal]': format_currency(total)
                 }
                 invoice_data.invoice_number = invoice_number
-                # Save the invoice data
                 save_invoice_data(invoice_data)
-                # Generate the invoice
                 docx_output, docx_filename, pdf_output, pdf_filename = generate_invoice(invoice_data)
-                # Update invoice count if using default number
                 if invoice_number == default_invoice_number:
                     save_invoice_count(invoice_count)
                 st.success(f"Invoice {invoice_number} generated and saved successfully!")
@@ -566,7 +572,6 @@ with tab1:
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
 
-# Tab 2: View Invoices
 with tab2:
     st.header("Previously Generated Invoices")
     invoices = load_invoice_data()
@@ -584,7 +589,6 @@ with tab2:
             st.write(f"**Total:** {invoice_data.financials['[grandtotal]']}")
             st.write(f"**Paid Status:** {'Paid' if invoice_data.mark_as_paid else 'Not Paid'}")
 
-            # Option to mark as paid
             if not invoice_data.mark_as_paid:
                 if st.button(f"Mark {selected_invoice} as Paid"):
                     invoice_data.mark_as_paid = True
@@ -592,7 +596,6 @@ with tab2:
                     st.success(f"Invoice {selected_invoice} marked as paid!")
                     st.experimental_rerun()
 
-            # Download the invoice
             if st.button(f"Download {selected_invoice}"):
                 try:
                     docx_output, docx_filename, pdf_output, pdf_filename = generate_invoice(invoice_data)
