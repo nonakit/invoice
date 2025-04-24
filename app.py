@@ -347,8 +347,11 @@ def add_paid_stamp_and_signature(doc):
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
         # Replace the inline drawing with an anchored one for absolute positioning
+        # Added namespace declarations for w and wp
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
-            <w:drawing>
+            <w:drawing
+                xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
                 <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                     <wp:simplePos x="0" y="0"/>
                     <wp:positionH relativeFrom="page">
@@ -386,8 +389,11 @@ def add_paid_stamp_and_signature(doc):
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
         # Replace the inline drawing with an anchored one for absolute positioning
+        # Added namespace declarations for w and wp
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
-            <w:drawing>
+            <w:drawing
+                xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
                 <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                     <wp:simplePos x="0" y="0"/>
                     <wp:positionH relativeFrom="page">
