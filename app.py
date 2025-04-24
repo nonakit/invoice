@@ -117,8 +117,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # URLs for the stamp and signature images (replace with your GitHub URLs)
-PAID_STAMP_URL = "https://github.com/nonakit/invoice/blob/3d4261e3a9c816eeb678fa0113e8aafd0c634af8/Private/paid-stamp.png"
-SIGNATURE_URL = "https://raw.githubusercontent.com/yourusername/yourrepo/main/signature.png"
+PAID_STAMP_URL = "https://drive.google.com/file/d/1W9PL0DtP0TUk7IcGiMD_ZuLddtQ8gjNo/view?usp=sharing"
+SIGNATURE_URL = "https://drive.google.com/file/d/1OaXfq9bAj2sxKQJzX1oFmNmHRv1EwG0E/view?usp=sharing"
 
 # Reuse your existing classes and functions
 class InvoiceData:
