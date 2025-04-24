@@ -344,7 +344,7 @@ def add_paid_stamp_and_signature(doc):
         graphic_elements = stamp_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in stamp drawing")
-        graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode')
+        graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -383,7 +383,7 @@ def add_paid_stamp_and_signature(doc):
         graphic_elements = signature_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in signature drawing")
-        graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode')
+        graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
         # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
@@ -534,9 +534,7 @@ with tab1:
             st.write(f"Invoice Date: {invoice_date}")
         else:
             st.session_state.manual_invoice_date = st.date_input(
-                "
-
-Select Invoice Date",
+                "Select Invoice Date",
                 value=st.session_state.manual_invoice_date,
                 key="manual_invoice_date_picker"
             )
@@ -634,7 +632,7 @@ Select Invoice Date",
                 tax = subtotal * (tax_rate / 100)
                 invoice_data.apply_late_fee = apply_late_fee
                 late_fee = subtotal * 0.02 if apply_late_fee else 0
-                total = subtotal + tax - discount + late_fee
+                total = subtotal tether + tax - discount + late_fee
                 invoice_data.financials = {
                     '[subtotal]': format_currency(subtotal),
                     '[tax]': format_currency(tax),
