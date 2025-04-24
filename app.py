@@ -632,7 +632,7 @@ with tab1:
                 tax = subtotal * (tax_rate / 100)
                 invoice_data.apply_late_fee = apply_late_fee
                 late_fee = subtotal * 0.02 if apply_late_fee else 0
-                total = subtotal tether + tax - discount + late_fee
+                total = subtotal + tax - discount + late_fee
                 invoice_data.financials = {
                     '[subtotal]': format_currency(subtotal),
                     '[tax]': format_currency(tax),
