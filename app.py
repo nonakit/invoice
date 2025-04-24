@@ -3,7 +3,7 @@ import docx
 from docx import Document
 from datetime import datetime
 from docx.oxml.ns import qn
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt, RGBColor, Inches
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import parse_xml
@@ -11,6 +11,10 @@ from docx.oxml.ns import nsdecls
 import io
 import os
 import pypandoc
+import json
+import requests
+from PIL import Image
+import io
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -112,6 +116,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# URLs for the stamp and signature images (replace with your GitHub URLs)
+PAID_STAMP_URL = "https://raw.githubusercontent.com/yourusername/yourrepo/main/paid_stamp.png"
+SIGNATURE_URL = "https://raw.githubusercontent.com/yourusername/yourrepo/main/signature.png"
+
 # Reuse your existing classes and functions
 class InvoiceData:
     def __init__(self):
@@ -120,7 +128,34 @@ class InvoiceData:
         self.items = []
         self.financials = {}
         self.apply_late_fee = False
+        self.mark_as_paid = False  # New attribute for paid status
         self.invoice_number = ""
+        self.signature = ""  # Placeholder for signature (not used since we're using an image)
+
+    def to_dict(self):
+        return {
+            "client_info": self.client_info,
+            "invoice_details": self.invoice_details,
+            "items": self.items,
+            "financials": self.financials,
+            "apply_late_fee": self.apply_late_fee,
+            "mark_as_paid": self.mark_as_paid,
+            "invoice_number": self.invoice_number,
+            "signature": self.signature
+        }
+
+    @staticmethod
+    def from_dict(data):
+        invoice = InvoiceData()
+        invoice.client_info = data.get("client_info", {})
+        invoice.invoice_details = data.get("invoice_details", {})
+        invoice.items = data.get("items", [])
+        invoice.financials = data.get("financials", {})
+        invoice.apply_late_fee = data.get("apply_late_fee", False)
+        invoice.mark_as_paid = data.get("mark_as_paid", False)
+        invoice.invoice_number = data.get("invoice_number", "")
+        invoice.signature = data.get("signature", "")
+        return invoice
 
 def format_currency(amount):
     if amount == 0:
@@ -221,6 +256,38 @@ def style_financial_table(doc, invoice_data):
             run.font.name = "Courier New"
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
 
+def add_paid_stamp_and_signature(doc):
+    # Fetch images from GitHub
+    stamp_response = requests.get(PAID_STAMP_URL)
+    signature_response = requests.get(SIGNATURE_URL)
+
+    if stamp_response.status_code != 200 or signature_response.status_code != 200:
+        raise Exception("Failed to fetch stamp or signature images from GitHub")
+
+    # Add paragraph for stamp and signature
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+    # Add PAID stamp
+    stamp_img = Image.open(io.BytesIO(stamp_response.content))
+    stamp_io = io.BytesIO()
+    stamp_img.save(stamp_io, format="PNG")
+    stamp_io.seek(0)
+    run = p.add_run()
+    run.add_picture(stamp_io, width=Inches(1.5))
+
+    # Add signature below stamp
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    signature_img = Image.open(io.BytesIO(signature_response.content))
+    signature_io = io.BytesIO()
+    signature_img.save(signature_io, format="PNG")
+    signature_io.seek(0)
+    run = p.add_run()
+    run.add_picture(signature_io, width=Inches(1.0))
+
+    return doc
+
 def get_next_invoice_number():
     count_file = "invoice_count.txt"
     year = "2025"
@@ -246,6 +313,27 @@ def validate_date_format(date_str):
     except ValueError:
         return False
 
+def save_invoice_data(invoice_data):
+    # Load existing invoices
+    invoice_db = "invoices.json"
+    if os.path.exists(invoice_db):
+        with open(invoice_db, 'r') as f:
+            invoices = json.load(f)
+    else:
+        invoices = {}
+
+    invoices[invoice_data.invoice_number] = invoice_data.to_dict()
+    with open(invoice_db, 'w') as f:
+        json.dump(invoices, f, indent=4)
+
+def load_invoice_data():
+    invoice_db = "invoices.json"
+    if os.path.exists(invoice_db):
+        with open(invoice_db, 'r') as f:
+            data = json.load(f)
+        return {k: InvoiceData.from_dict(v) for k, v in data.items()}
+    return {}
+
 def generate_invoice(invoice_data):
     doc = Document('Invoice_Template_MarketixLab.docx')
     replacements = {**invoice_data.client_info, **invoice_data.invoice_details, **invoice_data.financials}
@@ -257,6 +345,11 @@ def generate_invoice(invoice_data):
     doc = replace_placeholders(doc, replacements)
     doc = update_items_table(doc, invoice_data.items)
     style_financial_table(doc, invoice_data)
+
+    # Add "PAID" stamp and signature if marked as paid
+    if invoice_data.mark_as_paid:
+        doc = add_paid_stamp_and_signature(doc)
+
     for paragraph in doc.paragraphs:
         for run in paragraph.runs:
             run.font.name = "Courier New"
@@ -294,173 +387,230 @@ def generate_invoice(invoice_data):
 st.title("📄 Invoice Generator")
 st.markdown("Create professional invoices with ease using this streamlined tool.")
 
-# Initialize session state for items and invoice date
-if 'item_list' not in st.session_state:
-    st.session_state.item_list = [{"description": "", "unit_price": 0.0, "quantity": 0.0}]
+# Tabs for creating and viewing invoices
+tab1, tab2 = st.tabs(["Create Invoice", "View Invoices"])
 
-if 'use_today' not in st.session_state:
-    st.session_state.use_today = True
+# Tab 1: Create Invoice
+with tab1:
+    # Initialize session state for items and invoice date
+    if 'item_list' not in st.session_state:
+        st.session_state.item_list = [{"description": "", "unit_price": 0.0, "quantity": 0.0}]
 
-if 'manual_invoice_date' not in st.session_state:
-    st.session_state.manual_invoice_date = datetime.now()
+    if 'use_today' not in st.session_state:
+        st.session_state.use_today = True
 
-# Client Information
-st.header("Client Information")
-with st.form(key="client_form"):
-    client_name = st.text_input("Client Name", placeholder="Enter client name")
-    client_phone = st.text_input("Client Phone", placeholder="Enter phone number")
-    client_email = st.text_input("Client Email", placeholder="Enter email")
-    client_address = st.text_area("Client Address", placeholder="Enter address")
-    client_submit = st.form_submit_button("Save Client Info")
+    if 'manual_invoice_date' not in st.session_state:
+        st.session_state.manual_invoice_date = datetime.now()
 
-# Invoice Details
-st.header("Invoice Details")
-with st.form(key="invoice_form"):
-    default_invoice_number, invoice_count = get_next_invoice_number()
-    invoice_number = st.text_input("Invoice Number", value=default_invoice_number, help="Invoice number must start with 'INV2025'")
-    
-    # Invoice Date with manual input option using date picker
-    st.session_state.use_today = st.checkbox("Use Today's Date", value=st.session_state.use_today, key="use_today_checkbox")
-    if st.session_state.use_today:
-        invoice_date = datetime.now().strftime("%d.%m.%Y")
-        st.write(f"Invoice Date: {invoice_date}")
-    else:
-        st.session_state.manual_invoice_date = st.date_input(
-            "Select Invoice Date",
-            value=st.session_state.manual_invoice_date,
-            key="manual_invoice_date_picker"
-        )
-        invoice_date = st.session_state.manual_invoice_date.strftime("%d.%m.%Y")
-        st.write(f"Selected Invoice Date: {invoice_date}")
-    
-    # Due Date with date picker
-    due_date_obj = st.date_input("Select Due Date", value=datetime.now(), key="due_date_picker")
-    due_date = due_date_obj.strftime("%d.%m.%Y")
-    
-    invoice_submit = st.form_submit_button("Save Invoice Details")
+    # Client Information
+    st.header("Client Information")
+    with st.form(key="client_form"):
+        client_name = st.text_input("Client Name", placeholder="Enter client name")
+        client_phone = st.text_input("Client Phone", placeholder="Enter phone number")
+        client_email = st.text_input("Client Email", placeholder="Enter email")
+        client_address = st.text_area("Client Address", placeholder="Enter address")
+        client_submit = st.form_submit_button("Save Client Info")
 
-# Items
-st.header("Items")
-# Ensure item_list is always a list
-if not isinstance(st.session_state.item_list, list):
-    st.warning("Item list was corrupted. Resetting to default.")
-    st.session_state.item_list = [{"description": "", "unit_price": 0.0, "quantity": 0.0}]
-
-# Functions to manage items
-def add_item():
-    st.session_state.item_list.append({"description": "", "unit_price": 0.0, "quantity": 0.0})
-
-def remove_item(index):
-    if len(st.session_state.item_list) > 1:
-        st.session_state.item_list.pop(index)
-
-# Display and edit items
-for i in range(len(st.session_state.item_list)):
-    col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-    with col1:
-        st.session_state.item_list[i]["description"] = st.text_input(
-            f"Description {i+1}",
-            value=st.session_state.item_list[i]["description"],
-            key=f"desc_{i}"
-        )
-    with col2:
-        st.session_state.item_list[i]["unit_price"] = st.number_input(
-            f"Unit Price {i+1}",
-            min_value=0.0,
-            value=st.session_state.item_list[i]["unit_price"],
-            key=f"price_{i}"
-        )
-    with col3:
-        st.session_state.item_list[i]["quantity"] = st.number_input(
-            f"Quantity {i+1}",
-            min_value=0.0,
-            value=st.session_state.item_list[i]["quantity"],
-            key=f"qty_{i}"
-        )
-    with col4:
-        if st.button("✕", key=f"delete_{i}"):
-            remove_item(i)
-
-# Add item button
-st.button("Add Item", on_click=add_item)
-
-# Financial Details
-st.header("Financial Details")
-with st.form(key="financial_form"):
-    tax_rate = st.number_input("Tax Rate (%)", min_value=0.0, value=0.0, help="Enter tax rate as a percentage")
-    discount = st.number_input("Discount Amount", min_value=0.0, value=0.0, help="Enter discount amount in Rp")
-    apply_late_fee = st.checkbox("Apply Late Fee (2%)", value=False, help="Check to apply a 2% late fee")
-    financial_submit = st.form_submit_button("Save Financial Details")
-
-# Generate Invoice
-if st.button("Generate Invoice"):
-    try:
-        # Validate inputs
-        if not all([client_name, client_phone, client_email, client_address]):
-            st.error("All client info fields are required")
-        elif not all([invoice_number, invoice_date, due_date]):
-            st.error("All invoice details are required")
-        elif not invoice_number.startswith("INV2025"):
-            st.error("Invoice number must start with 'INV2025'")
-        elif not validate_date_format(invoice_date):
-            st.error("Invoice date must be in the format dd.mm.yyyy (e.g., 21.04.2025)")
-        elif not validate_date_format(due_date):
-            st.error("Due date must be in the format dd.mm.yyyy (e.g., 28.04.2025)")
-        elif not st.session_state.item_list or not any(item["description"] and item["unit_price"] > 0 and item["quantity"] > 0 for item in st.session_state.item_list):
-            st.error("At least one valid item is required")
+    # Invoice Details
+    st.header("Invoice Details")
+    with st.form(key="invoice_form"):
+        default_invoice_number, invoice_count = get_next_invoice_number()
+        invoice_number = st.text_input("Invoice Number", value=default_invoice_number, help="Invoice number must start with 'INV2025'")
+        
+        # Invoice Date with manual input option using date picker
+        st.session_state.use_today = st.checkbox("Use Today's Date", value=st.session_state.use_today, key="use_today_checkbox")
+        if st.session_state.use_today:
+            invoice_date = datetime.now().strftime("%d.%m.%Y")
+            st.write(f"Invoice Date: {invoice_date}")
         else:
-            invoice_data = InvoiceData()
-            invoice_data.client_info = {
-                '{{client_name}}': client_name,
-                '{{client_phone}}': client_phone,
-                '{{client_email}}': client_email,
-                '{{client_address}}': client_address
-            }
-            invoice_data.invoice_details = {
-                '{{invoice_number}}': invoice_number,
-                '{{invoice_date}}': invoice_date,
-                '{{due_date}}': due_date
-            }
-            invoice_data.items = [
-                {
-                    'description': item['description'],
-                    'unit_price': item['unit_price'],
-                    'quantity': item['quantity'],
-                    'total': item['unit_price'] * item['quantity']
-                } for item in st.session_state.item_list if item['description'] and item['unit_price'] > 0 and item['quantity'] > 0
-            ]
-            subtotal = sum(item['total'] for item in invoice_data.items)
-            tax = subtotal * (tax_rate / 100)
-            invoice_data.apply_late_fee = apply_late_fee
-            late_fee = subtotal * 0.02 if apply_late_fee else 0
-            total = subtotal + tax - discount + late_fee
-            invoice_data.financials = {
-                '[subtotal]': format_currency(subtotal),
-                '[tax]': format_currency(tax),
-                '[discount]': format_currency(discount),
-                '[latefee]': format_currency(late_fee),
-                '[grandtotal]': format_currency(total)
-            }
-            invoice_data.invoice_number = invoice_number
-            docx_output, docx_filename, pdf_output, pdf_filename = generate_invoice(invoice_data)
-            # Only update count if using auto-generated number
-            if invoice_number == default_invoice_number:
-                save_invoice_count(invoice_count)
-            st.success(f"Invoice generated successfully!")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    label="Download Invoice (DOCX)",
-                    data=docx_output,
-                    file_name=docx_filename,
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-            with col2:
-                st.download_button(
-                    label="Download Invoice (PDF)",
-                    data=pdf_output,
-                    file_name=pdf_filename,
-                    mime="application/pdf"
-                )
-    except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
+            st.session_state.manual_invoice_date = st.date_input(
+                "Select Invoice Date",
+                value=st.session_state.manual_invoice_date,
+                key="manual_invoice_date_picker"
+            )
+            invoice_date = st.session_state.manual_invoice_date.strftime("%d.%m.%Y")
+            st.write(f"Selected Invoice Date: {invoice_date}")
+        
+        # Due Date with date picker
+        due_date_obj = st.date_input("Select Due Date", value=datetime.now(), key="due_date_picker")
+        due_date = due_date_obj.strftime("%d.%m.%Y")
+        
+        invoice_submit = st.form_submit_button("Save Invoice Details")
+
+    # Items
+    st.header("Items")
+    # Ensure item_list is always a list
+    if not isinstance(st.session_state.item_list, list):
+        st.warning("Item list was corrupted. Resetting to default.")
+        st.session_state.item_list = [{"description": "", "unit_price": 0.0, "quantity": 0.0}]
+
+    # Functions to manage items
+    def add_item():
+        st.session_state.item_list.append({"description": "", "unit_price": 0.0, "quantity": 0.0})
+
+    def remove_item(index):
+        if len(st.session_state.item_list) > 1:
+            st.session_state.item_list.pop(index)
+
+    # Display and edit items
+    for i in range(len(st.session_state.item_list)):
+        col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+        with col1:
+            st.session_state.item_list[i]["description"] = st.text_input(
+                f"Description {i+1}",
+                value=st.session_state.item_list[i]["description"],
+                key=f"desc_{i}"
+            )
+        with col2:
+            st.session_state.item_list[i]["unit_price"] = st.number_input(
+                f"Unit Price {i+1}",
+                min_value=0.0,
+                value=st.session_state.item_list[i]["unit_price"],
+                key=f"price_{i}"
+            )
+        with col3:
+            st.session_state.item_list[i]["quantity"] = st.number_input(
+                f"Quantity {i+1}",
+                min_value=0.0,
+                value=st.session_state.item_list[i]["quantity"],
+                key=f"qty_{i}"
+            )
+        with col4:
+            if st.button("✕", key=f"delete_{i}"):
+                remove_item(i)
+
+    # Add item button
+    st.button("Add Item", on_click=add_item)
+
+    # Financial Details
+    st.header("Financial Details")
+    with st.form(key="financial_form"):
+        tax_rate = st.number_input("Tax Rate (%)", min_value=0.0, value=0.0, help="Enter tax rate as a percentage")
+        discount = st.number_input("Discount Amount", min_value=0.0, value=0.0, help="Enter discount amount in Rp")
+        apply_late_fee = st.checkbox("Apply Late Fee (2%)", value=False, help="Check to apply a 2% late fee")
+        financial_submit = st.form_submit_button("Save Financial Details")
+
+    # Generate Invoice
+    if st.button("Generate Invoice"):
+        try:
+            # Validate inputs
+            if not all([client_name, client_phone, client_email, client_address]):
+                st.error("All client info fields are required")
+            elif not all([invoice_number, invoice_date, due_date]):
+                st.error("All invoice details are required")
+            elif not invoice_number.startswith("INV2025"):
+                st.error("Invoice number must start with 'INV2025'")
+            elif not validate_date_format(invoice_date):
+                st.error("Invoice date must be in the format dd.mm.yyyy (e.g., 21.04.2025)")
+            elif not validate_date_format(due_date):
+                st.error("Due date must be in the format dd.mm.yyyy (e.g., 28.04.2025)")
+            elif not st.session_state.item_list or not any(item["description"] and item["unit_price"] > 0 and item["quantity"] > 0 for item in st.session_state.item_list):
+                st.error("At least one valid item is required")
+            else:
+                invoice_data = InvoiceData()
+                invoice_data.client_info = {
+                    '{{client_name}}': client_name,
+                    '{{client_phone}}': client_phone,
+                    '{{client_email}}': client_email,
+                    '{{client_address}}': client_address
+                }
+                invoice_data.invoice_details = {
+                    '{{invoice_number}}': invoice_number,
+                    '{{invoice_date}}': invoice_date,
+                    '{{due_date}}': due_date
+                }
+                invoice_data.items = [
+                    {
+                        'description': item['description'],
+                        'unit_price': item['unit_price'],
+                        'quantity': item['quantity'],
+                        'total': item['unit_price'] * item['quantity']
+                    } for item in st.session_state.item_list if item['description'] and item['unit_price'] > 0 and item['quantity'] > 0
+                ]
+                subtotal = sum(item['total'] for item in invoice_data.items)
+                tax = subtotal * (tax_rate / 100)
+                invoice_data.apply_late_fee = apply_late_fee
+                late_fee = subtotal * 0.02 if apply_late_fee else 0
+                total = subtotal + tax - discount + late_fee
+                invoice_data.financials = {
+                    '[subtotal]': format_currency(subtotal),
+                    '[tax]': format_currency(tax),
+                    '[discount]': format_currency(discount),
+                    '[latefee]': format_currency(late_fee),
+                    '[grandtotal]': format_currency(total)
+                }
+                invoice_data.invoice_number = invoice_number
+                # Save the invoice data
+                save_invoice_data(invoice_data)
+                # Generate the invoice
+                docx_output, docx_filename, pdf_output, pdf_filename = generate_invoice(invoice_data)
+                # Update invoice count if using default number
+                if invoice_number == default_invoice_number:
+                    save_invoice_count(invoice_count)
+                st.success(f"Invoice {invoice_number} generated and saved successfully!")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="Download Invoice (DOCX)",
+                        data=docx_output,
+                        file_name=docx_filename,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                with col2:
+                    st.download_button(
+                        label="Download Invoice (PDF)",
+                        data=pdf_output,
+                        file_name=pdf_filename,
+                        mime="application/pdf"
+                    )
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+
+# Tab 2: View Invoices
+with tab2:
+    st.header("Previously Generated Invoices")
+    invoices = load_invoice_data()
+    if not invoices:
+        st.info("No invoices found.")
+    else:
+        invoice_numbers = list(invoices.keys())
+        selected_invoice = st.selectbox("Select an Invoice", invoice_numbers)
+        if selected_invoice:
+            invoice_data = invoices[selected_invoice]
+            st.write(f"**Invoice Number:** {invoice_data.invoice_number}")
+            st.write(f"**Client Name:** {invoice_data.client_info['{{client_name}}']}")
+            st.write(f"**Date:** {invoice_data.invoice_details['{{invoice_date}}']}")
+            st.write(f"**Due Date:** {invoice_data.invoice_details['{{due_date}}']}")
+            st.write(f"**Total:** {invoice_data.financials['[grandtotal]']}")
+            st.write(f"**Paid Status:** {'Paid' if invoice_data.mark_as_paid else 'Not Paid'}")
+
+            # Option to mark as paid
+            if not invoice_data.mark_as_paid:
+                if st.button(f"Mark {selected_invoice} as Paid"):
+                    invoice_data.mark_as_paid = True
+                    save_invoice_data(invoice_data)
+                    st.success(f"Invoice {selected_invoice} marked as paid!")
+                    st.experimental_rerun()
+
+            # Download the invoice
+            if st.button(f"Download {selected_invoice}"):
+                try:
+                    docx_output, docx_filename, pdf_output, pdf_filename = generate_invoice(invoice_data)
+                    st.success(f"Invoice {selected_invoice} generated successfully!")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.download_button(
+                            label="Download Invoice (DOCX)",
+                            data=docx_output,
+                            file_name=docx_filename,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                    with col2:
+                        st.download_button(
+                            label="Download Invoice (PDF)",
+                            data=pdf_output,
+                            file_name=pdf_filename,
+                            mime="application/pdf"
+                        )
+                except Exception as e:
+                    st.error(f"An error occurred: {str(e)}")
