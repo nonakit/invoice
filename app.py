@@ -16,7 +16,7 @@ import requests
 from PIL import Image
 import io
 import re
-import lxml.etree as ET
+import lxml.etree as ET  # Added missing import for XPath operations
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -347,7 +347,6 @@ def add_paid_stamp_and_signature(doc):
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
         # Replace the inline drawing with an anchored one for absolute positioning
-        # Added namespace declarations for w and wp
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
             <w:drawing
                 xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -389,7 +388,6 @@ def add_paid_stamp_and_signature(doc):
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
         # Replace the inline drawing with an anchored one for absolute positioning
-        # Added namespace declarations for w and wp
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
             <w:drawing
                 xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -511,7 +509,8 @@ st.markdown("Create professional invoices with ease using this streamlined tool.
 
 tab1, tab2 = st.tabs(["Create Invoice", "View Invoices"])
 
-with tab1:
+with t
+ab1:
     if 'item_list' not in st.session_state:
         st.session_state.item_list = [{"description": "", "unit_price": 0.0, "quantity": 0.0}]
 
