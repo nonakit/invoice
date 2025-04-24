@@ -16,7 +16,7 @@ import requests
 from PIL import Image
 import io
 import re
-import lxml.etree as ET  # Added missing import for XPath operations
+import lxml.etree as ET
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -509,8 +509,7 @@ st.markdown("Create professional invoices with ease using this streamlined tool.
 
 tab1, tab2 = st.tabs(["Create Invoice", "View Invoices"])
 
-with t
-ab1:
+with tab1:
     if 'item_list' not in st.session_state:
         st.session_state.item_list = [{"description": "", "unit_price": 0.0, "quantity": 0.0}]
 
@@ -631,7 +630,7 @@ ab1:
                         'unit_price': item['unit_price'],
                         'quantity': item['quantity'],
                         'total': item['unit_price'] * item['quantity']
-                    } for item in st.session_state.item_list if item['description'] and item['unit_price'] > 0 and item['quantity'] > 0
+                    } for item in st.session_state.item_list if item()['description'] and item['unit_price'] > 0 and item['quantity'] > 0
                 ]
                 subtotal = sum(item['total'] for item in invoice_data.items)
                 tax = subtotal * (tax_rate / 100)
