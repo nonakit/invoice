@@ -16,6 +16,7 @@ import requests
 from PIL import Image
 import io
 import re
+import lxml.etree as ET
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -339,24 +340,30 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find drawing element for stamp image")
         stamp_drawing = stamp_drawing_elements[0]
 
+        # Convert the drawing element to a string to manipulate it
+        stamp_drawing_xml = ET.tostring(stamp_drawing, encoding='unicode')
+        stamp_drawing_tail = stamp_drawing_xml.split('<wp:cNvGraphicFramePr/>')[1]
+
         # Replace the inline drawing with an anchored one for absolute positioning
-        stamp_drawing.xml = f"""
-            <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
-                <wp:simplePos x="0" y="0"/>
-                <wp:positionH relativeFrom="page">
-                    <wp:posOffset>{int(4.1 * 914400)}</wp:posOffset>
-                </wp:positionH>
-                <wp:positionV relativeFrom="page">
-                    <wp:posOffset>{int(6.15 * 914400)}</wp:posOffset>
-                </wp:positionV>
-                <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
-                <wp:effectExtent l="0" t="0" r="0" b="0"/>
-                <wp:wrapNone/>
-                <wp:docPr id="1" name="Picture 1"/>
-                <wp:cNvGraphicFramePr/>
-                {stamp_drawing.xml.split('<wp:cNvGraphicFramePr/>')[1]}
-            </wp:anchor>
-        """
+        stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
+            <w:drawing>
+                <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
+                    <wp:simplePos x="0" y="0"/>
+                    <wp:positionH relativeFrom="page">
+                        <wp:posOffset>{int(4.1 * 914400)}</wp:posOffset>
+                    </wp:positionH>
+                    <wp:positionV relativeFrom="page">
+                        <wp:posOffset>{int(6.15 * 914400)}</wp:posOffset>
+                    </wp:positionV>
+                    <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
+                    <wp:effectExtent l="0" t="0" r="0" b="0"/>
+                    <wp:wrapNone/>
+                    <wp:docPr id="1" name="Picture 1"/>
+                    <wp:cNvGraphicFramePr/>
+                    {stamp_drawing_tail}
+                </wp:anchor>
+            </w:drawing>
+        """))
 
         # Add the signature with specified position and size
         signature_paragraph = doc.add_paragraph()
@@ -370,24 +377,30 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find drawing element for signature image")
         signature_drawing = signature_drawing_elements[0]
 
+        # Convert the drawing element to a string to manipulate it
+        signature_drawing_xml = ET.tostring(signature_drawing, encoding='unicode')
+        signature_drawing_tail = signature_drawing_xml.split('<wp:cNvGraphicFramePr/>')[1]
+
         # Replace the inline drawing with an anchored one for absolute positioning
-        signature_drawing.xml = f"""
-            <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
-                <wp:simplePos x="0" y="0"/>
-                <wp:positionH relativeFrom="page">
-                    <wp:posOffset>{int(4.51 * 914400)}</wp:posOffset>
-                </wp:positionH>
-                <wp:positionV relativeFrom="page">
-                    <wp:posOffset>{int(2.69 * 914400)}</wp:posOffset>
-                </wp:positionV>
-                <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
-                <wp:effectExtent l="0" t="0" r="0" b="0"/>
-                <wp:wrapNone/>
-                <wp:docPr id="2" name="Picture 2"/>
-                <wp:cNvGraphicFramePr/>
-                {signature_drawing.xml.split('<wp:cNvGraphicFramePr/>')[1]}
-            </wp:anchor>
-        """
+        signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
+            <w:drawing>
+                <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
+                    <wp:simplePos x="0" y="0"/>
+                    <wp:positionH relativeFrom="page">
+                        <wp:posOffset>{int(4.51 * 914400)}</wp:posOffset>
+                    </wp:positionH>
+                    <wp:positionV relativeFrom="page">
+                        <wp:posOffset>{int(2.69 * 914400)}</wp:posOffset>
+                    </wp:positionV>
+                    <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
+                    <wp:effectExtent l="0" t="0" r="0" b="0"/>
+                    <wp:wrapNone/>
+                    <wp:docPr id="2" name="Picture 2"/>
+                    <wp:cNvGraphicFramePr/>
+                    {signature_drawing_tail}
+                </wp:anchor>
+            </w:drawing>
+        """))
 
         return doc
 
