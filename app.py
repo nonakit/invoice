@@ -270,14 +270,11 @@ def fetch_image(url):
 
         content_type = response.headers.get('Content-Type', '')
         if not content_type.startswith('image/'):
-            # Check if this is a Google Drive confirmation page
             response_text = response.text
             if "google.com" in response_text and "confirm=" in response_text:
-                # Extract the confirmation token
                 confirm_match = re.search(r'confirm=([a-zA-Z0-9\-_]+)', response_text)
                 if confirm_match:
                     confirm_token = confirm_match.group(1)
-                    # Retry the request with the confirmation token
                     confirm_url = f"{url}&confirm={confirm_token}"
                     response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True)
                     content_type = response.headers.get('Content-Type', '')
@@ -315,27 +312,72 @@ def fetch_image(url):
 
 def add_paid_stamp_and_signature(doc):
     try:
+        # Fetch images from the URLs
         stamp_data = fetch_image(PAID_STAMP_URL)
         signature_data = fetch_image(SIGNATURE_URL)
 
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-
+        # Convert images to the required format
         stamp_img = Image.open(stamp_data)
         stamp_io = io.BytesIO()
         stamp_img.save(stamp_io, format="PNG")
         stamp_io.seek(0)
-        run = p.add_run()
-        run.add_picture(stamp_io, width=Inches(1.5))
 
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         signature_img = Image.open(signature_data)
         signature_io = io.BytesIO()
         signature_img.save(signature_io, format="PNG")
         signature_io.seek(0)
-        run = p.add_run()
-        run.add_picture(signature_io, width=Inches(1.0))
+
+        # Add the stamp with specified position and size
+        stamp_paragraph = doc.add_paragraph()
+        stamp_run = stamp_paragraph.add_run()
+        stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
+
+        # Set text wrapping to "In Front of Text" and absolute position for stamp
+        stamp_element = stamp_picture._element
+        stamp_drawing = stamp_element.xpath(".//wp:docPr/..")[0]
+        stamp_drawing.xml = f"""
+            <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
+                <wp:simplePos x="0" y="0"/>
+                <wp:positionH relativeFrom="page">
+                    <wp:posOffset>{int(4.1 * 914400)}</wp:posOffset>
+                </wp:positionH>
+                <wp:positionV relativeFrom="page">
+                    <wp:posOffset>{int(6.15 * 914400)}</wp:posOffset>
+                </wp:positionV>
+                <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
+                <wp:effectExtent l="0" t="0" r="0" b="0"/>
+                <wp:wrapNone/>
+                <wp:docPr id="1" name="Picture 1"/>
+                <wp:cNvGraphicFramePr/>
+                {stamp_drawing.xml.split('<wp:cNvGraphicFramePr/>')[1]}
+            </wp:anchor>
+        """
+
+        # Add the signature with specified position and size
+        signature_paragraph = doc.add_paragraph()
+        signature_run = signature_paragraph.add_run()
+        signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
+
+        # Set text wrapping to "In Front of Text" and absolute position for signature
+        signature_element = signature_picture._element
+        signature_drawing = signature_element.xpath(".//wp:docPr/..")[0]
+        signature_drawing.xml = f"""
+            <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
+                <wp:simplePos x="0" y="0"/>
+                <wp:positionH relativeFrom="page">
+                    <wp:posOffset>{int(4.51 * 914400)}</wp:posOffset>
+                </wp:positionH>
+                <wp:positionV relativeFrom="page">
+                    <wp:posOffset>{int(2.69 * 914400)}</wp:posOffset>
+                </wp:positionV>
+                <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
+                <wp:effectExtent l="0" t="0" r="0" b="0"/>
+                <wp:wrapNone/>
+                <wp:docPr id="2" name="Picture 2"/>
+                <wp:cNvGraphicFramePr/>
+                {signature_drawing.xml.split('<wp:cNvGraphicFramePr/>')[1]}
+            </wp:anchor>
+        """
 
         return doc
 
