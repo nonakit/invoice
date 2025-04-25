@@ -328,8 +328,15 @@ def add_paid_stamp_and_signature(doc):
         signature_img.save(signature_io, format="PNG")
         signature_io.seek(0)
 
-        # Add the stamp with specified position and size
+        # Add a paragraph after the last table to place the stamp and signature
+        # This ensures we don't interfere with the main content or section breaks
+        last_table = doc.tables[-1]
         stamp_paragraph = doc.add_paragraph()
+        # Insert the paragraph after the last table
+        doc._body._element.insert(
+            doc.paragraphs.index(stamp_paragraph) + 1,
+            stamp_paragraph._element
+        )
         stamp_run = stamp_paragraph.add_run()
         stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
 
@@ -346,9 +353,9 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
-        # Adjusted positions for bottom-right placement
-        stamp_horizontal = 4.1 * 914400  # 4.1" in EMUs
-        stamp_vertical = 8.5 * 914400    # 8.5" in EMUs (adjusted to place near bottom)
+        # Use desired positions for stamp
+        stamp_horizontal = 5.09 * 914400  # 5.09" in EMUs
+        stamp_vertical = 6.64 * 914400   # 6.64" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -373,8 +380,12 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
 
-        # Add the signature with specified position and size
+        # Add the signature in a new paragraph
         signature_paragraph = doc.add_paragraph()
+        doc._body._element.insert(
+            doc.paragraphs.index(signature_paragraph) + 1,
+            signature_paragraph._element
+        )
         signature_run = signature_paragraph.add_run()
         signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
 
@@ -391,9 +402,9 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
-        # Adjusted positions for bottom-right placement
-        signature_horizontal = 4.35 * 914400  # 4.35" in EMUs (adjusted to fit within right margin)
-        signature_vertical = 8.0 * 914400     # 8.0" in EMUs (adjusted to place near bottom, above stamp)
+        # Use desired positions for signature
+        signature_horizontal = 5.64 * 914400  # 5.64" in EMUs
+        signature_vertical = 8.11 * 914400    # 8.11" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
@@ -417,6 +428,22 @@ def add_paid_stamp_and_signature(doc):
                 </wp:anchor>
             </w:drawing>
         """))
+
+        # Verify that the header still contains the logo
+        for section in doc.sections:
+            header = section.header
+            if not header.paragraphs:
+                continue
+            has_image = False
+            for paragraph in header.paragraphs:
+                for run in paragraph.runs:
+                    if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict'):
+                        has_image = True
+                        break
+                if has_image:
+                    break
+            if not has_image:
+                raise Exception("Header logo is missing after adding stamp and signature")
 
         return doc
 
