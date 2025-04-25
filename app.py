@@ -259,20 +259,17 @@ def style_financial_table(doc, invoice_data):
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
 
 def fetch_image(url):
-    st.write(f"Debug: Fetching image from URL: {url}")
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         session = requests.Session()
-        response = session.get(url, headers=headers, stream=True, allow_redirects=True, timeout=30)
-        st.write(f"Debug: Response status code: {response.status_code}")
+        response = session.get(url, headers=headers, stream=True, allow_redirects=True)
         
         if response.status_code != 200:
-            raise Exception(f"Failed to fetch image. Status code: {response.status_code}")
+            raise Exception(f"Failed to fetch image from {url}. Status code: {response.status_code}")
 
         content_type = response.headers.get('Content-Type', '')
-        st.write(f"Debug: Content-Type: {content_type}")
         if not content_type.startswith('image/'):
             response_text = response.text
             if "google.com" in response_text and "confirm=" in response_text:
@@ -280,10 +277,8 @@ def fetch_image(url):
                 if confirm_match:
                     confirm_token = confirm_match.group(1)
                     confirm_url = f"{url}&confirm={confirm_token}"
-                    st.write(f"Debug: Attempting confirmation with URL: {confirm_url}")
-                    response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True, timeout=30)
+                    response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True)
                     content_type = response.headers.get('Content-Type', '')
-                    st.write(f"Debug: Content-Type after confirmation: {content_type}")
                     if not content_type.startswith('image/'):
                         response_content = response.text[:200]
                         raise Exception(
@@ -307,85 +302,36 @@ def fetch_image(url):
                 )
 
         image_data = io.BytesIO(response.content)
-        st.write("Debug: Opening image with PIL")
         img = Image.open(image_data)
         img.verify()
         image_data.seek(0)
-        st.write("Debug: Image fetched successfully")
         
         return image_data
 
     except Exception as e:
-        st.write(f"Debug: Error in fetch_image: {str(e)}")
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
-def debug_relationships(doc, stage="Before"):
-    # Debug main document relationships
-    st.write(f"Debug: Inspecting main document relationships {stage} adding images")
-    try:
-        rels = doc.part.rels
-        for rel_id, rel in rels.items():
-            st.write(f"Debug: {stage} - Main Document Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
-    except Exception as e:
-        st.write(f"Debug: Error inspecting main document relationships {stage}: {str(e)}")
-
-    # Debug header relationships
-    st.write(f"Debug: Inspecting header relationships {stage} adding images")
-    try:
-        for section in doc.sections:
-            header = section.header
-            if header and header.part.rels:
-                for rel_id, rel in header.part.rels.items():
-                    st.write(f"Debug: {stage} - Header Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
-            else:
-                st.write(f"Debug: {stage} - No relationships found in header for section {doc.sections.index(section)}")
-    except Exception as e:
-        st.write(f"Debug: Error inspecting header relationships {stage}: {str(e)}")
-
 def add_paid_stamp_and_signature(doc):
-    st.write("Debug: Starting add_paid_stamp_and_signature")
     try:
-        # Debug relationships before adding images
-        debug_relationships(doc, "Before")
-
         # Fetch images from the URLs
-        st.write("Debug: Fetching stamp image")
         stamp_data = fetch_image(PAID_STAMP_URL)
-        st.write("Debug: Fetching signature image")
         signature_data = fetch_image(SIGNATURE_URL)
 
         # Convert images to the required format
-        st.write("Debug: Converting stamp image to PNG")
         stamp_img = Image.open(stamp_data)
         stamp_io = io.BytesIO()
         stamp_img.save(stamp_io, format="PNG")
         stamp_io.seek(0)
-        # Verify stamp_io content
-        if stamp_io.getbuffer().nbytes == 0:
-            raise Exception("Stamp image buffer is empty after conversion")
-        st.write(f"Debug: Stamp image converted, buffer size: {stamp_io.getbuffer().nbytes} bytes")
 
-        st.write("Debug: Converting signature image to PNG")
         signature_img = Image.open(signature_data)
         signature_io = io.BytesIO()
         signature_img.save(signature_io, format="PNG")
         signature_io.seek(0)
-        # Verify signature_io content
-        if signature_io.getbuffer().nbytes == 0:
-            raise Exception("Signature image buffer is empty after conversion")
-        st.write(f"Debug: Signature image converted, buffer size: {signature_io.getbuffer().nbytes} bytes")
 
-        # Add the stamp at the end of the document
-        st.write("Debug: Adding stamp paragraph")
+        # Add the stamp with specified position and size
         stamp_paragraph = doc.add_paragraph()
         stamp_run = stamp_paragraph.add_run()
-        try:
-            stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
-            stamp_rel_id = stamp_run.part.rels[-1].rId if stamp_run.part.rels else None
-            st.write(f"Debug: Stamp picture added with relationship ID: {stamp_rel_id}")
-        except Exception as e:
-            st.write(f"Debug: Failed to add stamp picture: {str(e)}")
-            raise Exception(f"Failed to add stamp picture: {str(e)}")
+        stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
 
         # Access the run's XML element to find the drawing element
         stamp_run_element = stamp_run._r
@@ -393,18 +339,16 @@ def add_paid_stamp_and_signature(doc):
         if not stamp_drawing_elements:
             raise Exception("Could not find drawing element for stamp image")
         stamp_drawing = stamp_drawing_elements[0]
-        st.write("Debug: Stamp drawing element found")
 
         # Find the a:graphic element to preserve the image data
         graphic_elements = stamp_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
-        st.write("Debug: Stamp graphic element extracted")
 
-        # Use desired positions for stamp
-        stamp_horizontal = 5.09 * 914400  # 5.09" in EMUs
-        stamp_vertical = 6.64 * 914400    # 6.64" in EMUs
+        # Adjusted positions for bottom-right placement
+        stamp_horizontal = 4.1 * 914400  # 4.1" in EMUs
+        stamp_vertical = 8.5 * 914400    # 8.5" in EMUs (adjusted to place near bottom)
 
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -428,22 +372,11 @@ def add_paid_stamp_and_signature(doc):
                 </wp:anchor>
             </w:drawing>
         """))
-        st.write("Debug: Stamp positioned successfully")
 
-        # Debug relationships after adding stamp
-        debug_relationships(doc, "After adding stamp")
-
-        # Add the signature at the end of the document
-        st.write("Debug: Adding signature paragraph")
+        # Add the signature with specified position and size
         signature_paragraph = doc.add_paragraph()
         signature_run = signature_paragraph.add_run()
-        try:
-            signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
-            signature_rel_id = signature_run.part.rels[-1].rId if signature_run.part.rels else None
-            st.write(f"Debug: Signature picture added with relationship ID: {signature_rel_id}")
-        except Exception as e:
-            st.write(f"Debug: Failed to add signature picture: {str(e)}")
-            raise Exception(f"Failed to add signature picture: {str(e)}")
+        signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
 
         # Access the run's XML element to find the drawing element
         signature_run_element = signature_run._r
@@ -451,18 +384,16 @@ def add_paid_stamp_and_signature(doc):
         if not signature_drawing_elements:
             raise Exception("Could not find drawing element for signature image")
         signature_drawing = signature_drawing_elements[0]
-        st.write("Debug: Signature drawing element found")
 
         # Find the a:graphic element to preserve the image data
         graphic_elements = signature_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
-        st.write("Debug: Signature graphic element extracted")
 
-        # Use desired positions for signature
-        signature_horizontal = 5.64 * 914400  # 5.64" in EMUs
-        signature_vertical = 8.11 * 914400    # 8.11" in EMUs
+        # Adjusted positions for bottom-right placement
+        signature_horizontal = 4.35 * 914400  # 4.35" in EMUs (adjusted to fit within right margin)
+        signature_vertical = 8.0 * 914400     # 8.0" in EMUs (adjusted to place near bottom, above stamp)
 
         # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
@@ -486,16 +417,10 @@ def add_paid_stamp_and_signature(doc):
                 </wp:anchor>
             </w:drawing>
         """))
-        st.write("Debug: Signature positioned successfully")
 
-        # Debug relationships after adding signature
-        debug_relationships(doc, "After adding signature")
-
-        st.write("Debug: add_paid_stamp_and_signature completed successfully")
         return doc
 
     except Exception as e:
-        st.write(f"Debug: Error in add_paid_stamp_and_signature: {str(e)}")
         raise Exception(f"Failed to add stamp and signature: {str(e)}")
 
 def get_next_invoice_number():
