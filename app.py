@@ -346,9 +346,9 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
-        # Adjusted positions for bottom-right placement
+        # Use desired positions directly with relativeFrom="page"
         stamp_horizontal = 4.1 * 914400  # 4.1" in EMUs
-        stamp_vertical = 8.5 * 914400    # 8.5" in EMUs (adjusted to place near bottom)
+        stamp_vertical = 6.15 * 914400  # 6.15" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -382,7 +382,7 @@ def add_paid_stamp_and_signature(doc):
         signature_run_element = signature_run._r
         signature_drawing_elements = signature_run_element.xpath('.//w:drawing')
         if not signature_drawing_elements:
-            raise Exception("Could not find drawing element for signature image")
+            raise Exception("Could not find drawing element for financieros image")
         signature_drawing = signature_drawing_elements[0]
 
         # Find the a:graphic element to preserve the image data
@@ -391,9 +391,9 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
-        # Adjusted positions for bottom-right placement
-        signature_horizontal = 4.35 * 914400  # 4.35" in EMUs (adjusted to fit within right margin)
-        signature_vertical = 8.0 * 914400     # 8.0" in EMUs (adjusted to place near bottom, above stamp)
+        # Use desired positions directly with relativeFrom="page"
+        signature_horizontal = 4.51 * 914400  # 4.51" in EMUs
+        signature_vertical = 2.69 * 914400  # 2.69" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
