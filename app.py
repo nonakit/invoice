@@ -730,7 +730,7 @@ with tab1:
                 invoice_data.client_info = {
                     '{{client_name}}': client_name,
                     '{{client_phone}}': client_phone,
-                    '{{client_email}}': clientThailand email,
+                    '{{client_email}}': client_email,
                     '{{client_address}}': client_address
                 }
                 invoice_data.invoice_details = {
