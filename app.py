@@ -330,28 +330,40 @@ def preserve_headers(doc):
         
         st.write(f"Debug: Number of sections: {len(doc.sections)}")
         saved_headers = []
-        for section in doc.sections:
-            section_index = doc.sections.index(section)
-            st.write(f"Debug: Processing section {section_index}")
-            
-            try:
-                header = section.header
-                st.write(f"Debug: Accessed header for section {section_index}")
+        section_index = 0
+        
+        # Convert sections to a list to inspect it
+        sections_list = list(doc.sections)
+        st.write(f"Debug: Sections list: {sections_list}")
+        
+        try:
+            for section in sections_list:
+                st.write(f"Debug: Processing section {section_index}")
                 
-                # Check if header._element exists
-                if header._element is None:
-                    st.write(f"Debug: Header element is None for section {section_index}")
-                    header_xml = None
-                else:
-                    header_xml = header._element.xml
-                    st.write(f"Debug: Header XML for section {section_index}: {header_xml[:100] if header_xml else 'None'}")
+                try:
+                    header = section.header
+                    st.write(f"Debug: Accessed header for section {section_index}")
+                    
+                    # Check if header._element exists
+                    if header._element is None:
+                        st.write(f"Debug: Header element is None for section {section_index}")
+                        header_xml = None
+                    else:
+                        header_xml = header._element.xml
+                        st.write(f"Debug: Header XML for section {section_index}: {header_xml[:100] if header_xml else 'None'}")
+                    
+                    saved_headers.append(header_xml)
+                    st.write(f"Debug: Saved header XML for section {section_index}")
                 
-                saved_headers.append(header_xml)
-                st.write(f"Debug: Saved header XML for section {section_index}")
-            
-            except Exception as e:
-                st.write(f"Debug: Error processing header for section {section_index}: {str(e)}")
-                raise Exception(f"Failed to process header for section {section_index}: {str(e)}")
+                except Exception as e:
+                    st.write(f"Debug: Error processing header for section {section_index}: {str(e)}")
+                    raise Exception(f"Failed to process header for section {section_index}: {str(e)}")
+                
+                section_index += 1
+        
+        except Exception as e:
+            st.write(f"Debug: Error iterating over sections: {str(e)}")
+            raise Exception(f"Failed to iterate over sections: {str(e)}")
         
         st.write("Debug: Headers preserved")
         return saved_headers
@@ -362,9 +374,10 @@ def preserve_headers(doc):
 
 def restore_headers(doc, saved_headers):
     st.write("Debug: Restoring headers")
+    section_index = 0
     for section, header_xml in zip(doc.sections, saved_headers):
         if header_xml is not None:
-            st.write(f"Debug: Restoring header for section {doc.sections.index(section)}")
+            st.write(f"Debug: Restoring header for section {section_index}")
             header = section.header
             header_element = header._element
             for child in list(header_element):
@@ -373,9 +386,10 @@ def restore_headers(doc, saved_headers):
             for child in new_header:
                 header_element.append(copy.deepcopy(child))
             st.write("Debug: Header restored")
-        if doc.sections.index(section) > 0:
+        if section_index > 0:
             section.header.link_to_previous = True
-            st.write(f"Debug: Linked header to previous for section {doc.sections.index(section)}")
+            st.write(f"Debug: Linked header to previous for section {section_index}")
+        section_index += 1
     st.write("Debug: Headers restored")
 
 def add_paid_stamp_and_signature(doc):
