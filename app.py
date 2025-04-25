@@ -630,7 +630,7 @@ with tab1:
                         'unit_price': item['unit_price'],
                         'quantity': item['quantity'],
                         'total': item['unit_price'] * item['quantity']
-                    } for item in st.session_state.item_list if item()['description'] and item['unit_price'] > 0 and item['quantity'] > 0
+                    } for item in st.session_state.item_list if item['description'] and item['unit_price'] > 0 and item['quantity'] > 0
                 ]
                 subtotal = sum(item['total'] for item in invoice_data.items)
                 tax = subtotal * (tax_rate / 100)
