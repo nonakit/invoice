@@ -17,7 +17,6 @@ from PIL import Image
 import io
 import re
 import lxml.etree as ET
-import copy
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -320,9 +319,21 @@ def fetch_image(url):
         st.write(f"Debug: Error in fetch_image: {str(e)}")
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
+def debug_relationships(doc, stage="Before"):
+    st.write(f"Debug: Inspecting relationships {stage} adding images")
+    try:
+        rels = doc.part.rels
+        for rel_id, rel in rels.items():
+            st.write(f"Debug: {stage} - Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
+    except Exception as e:
+        st.write(f"Debug: Error inspecting relationships {stage}: {str(e)}")
+
 def add_paid_stamp_and_signature(doc):
     st.write("Debug: Starting add_paid_stamp_and_signature")
     try:
+        # Debug relationships before adding images
+        debug_relationships(doc, "Before")
+
         # Fetch images from the URLs
         st.write("Debug: Fetching stamp image")
         stamp_data = fetch_image(PAID_STAMP_URL)
@@ -349,7 +360,8 @@ def add_paid_stamp_and_signature(doc):
         stamp_paragraph = doc.add_paragraph()
         stamp_run = stamp_paragraph.add_run()
         stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
-        st.write("Debug: Stamp picture added")
+        stamp_rel_id = stamp_run.part.rels[-1].rId if stamp_run.part.rels else None
+        st.write(f"Debug: Stamp picture added with relationship ID: {stamp_rel_id}")
 
         # Access the run's XML element to find the drawing element
         stamp_run_element = stamp_run._r
@@ -394,12 +406,16 @@ def add_paid_stamp_and_signature(doc):
         """))
         st.write("Debug: Stamp positioned successfully")
 
+        # Debug relationships after adding stamp
+        debug_relationships(doc, "After adding stamp")
+
         # Add the signature at the end of the document
         st.write("Debug: Adding signature paragraph")
         signature_paragraph = doc.add_paragraph()
         signature_run = signature_paragraph.add_run()
         signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
-        st.write("Debug: Signature picture added")
+        signature_rel_id = signature_run.part.rels[-1].rId if signature_run.part.rels else None
+        st.write(f"Debug: Signature picture added with relationship ID: {signature_rel_id}")
 
         # Access the run's XML element to find the drawing element
         signature_run_element = signature_run._r
@@ -443,6 +459,9 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
         st.write("Debug: Signature positioned successfully")
+
+        # Debug relationships after adding signature
+        debug_relationships(doc, "After adding signature")
 
         st.write("Debug: add_paid_stamp_and_signature completed successfully")
         return doc
