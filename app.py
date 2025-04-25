@@ -18,6 +18,11 @@ import io
 import re
 import lxml.etree as ET
 import copy
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -260,17 +265,20 @@ def style_financial_table(doc, invoice_data):
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
 
 def fetch_image(url):
+    logger.debug(f"Fetching image from URL: {url}")
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         session = requests.Session()
         response = session.get(url, headers=headers, stream=True, allow_redirects=True)
+        logger.debug(f"Response status code: {response.status_code}")
         
         if response.status_code != 200:
             raise Exception(f"Failed to fetch image from {url}. Status code: {response.status_code}")
 
         content_type = response.headers.get('Content-Type', '')
+        logger.debug(f"Content-Type: {content_type}")
         if not content_type.startswith('image/'):
             response_text = response.text
             if "google.com" in response_text and "confirm=" in response_text:
@@ -278,8 +286,10 @@ def fetch_image(url):
                 if confirm_match:
                     confirm_token = confirm_match.group(1)
                     confirm_url = f"{url}&confirm={confirm_token}"
+                    logger.debug(f"Attempting confirmation with URL: {confirm_url}")
                     response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True)
                     content_type = response.headers.get('Content-Type', '')
+                    logger.debug(f"Content-Type after confirmation: {content_type}")
                     if not content_type.startswith('image/'):
                         response_content = response.text[:200]
                         raise Exception(
@@ -303,13 +313,16 @@ def fetch_image(url):
                 )
 
         image_data = io.BytesIO(response.content)
+        logger.debug("Opening image with PIL")
         img = Image.open(image_data)
         img.verify()
         image_data.seek(0)
+        logger.debug("Image fetched successfully")
         
         return image_data
 
     except Exception as e:
+        logger.error(f"Error in fetch_image: {str(e)}")
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
 def preserve_headers(doc):
@@ -317,58 +330,75 @@ def preserve_headers(doc):
     Save the header content for each section to preserve it.
     Returns a list of header XML elements for each section.
     """
+    logger.debug("Preserving headers")
     saved_headers = []
     for section in doc.sections:
         header = section.header
-        # Save the XML content of the header
         header_xml = header._element.xml if header._element is not None else None
         saved_headers.append(header_xml)
+        logger.debug(f"Saved header XML for section {doc.sections.index(section)}: {header_xml[:100] if header_xml else 'None'}")
+    logger.debug("Headers preserved")
     return saved_headers
 
 def restore_headers(doc, saved_headers):
     """
     Restore the header content for each section from the saved headers.
     """
+    logger.debug("Restoring headers")
     for section, header_xml in zip(doc.sections, saved_headers):
         if header_xml is not None:
+            logger.debug(f"Restoring header for section {doc.sections.index(section)}")
             # Manually clear the current header content by removing all child elements
             header = section.header
             header_element = header._element
-            # Remove all child elements (e.g., paragraphs, tables)
             for child in list(header_element):
                 header_element.remove(child)
             # Restore the saved header content
             new_header = parse_xml(header_xml)
             for child in new_header:
                 header_element.append(copy.deepcopy(child))
+            logger.debug("Header restored")
         # Link the header to the previous section to prevent header content from being cleared
         if doc.sections.index(section) > 0:
             section.header.link_to_previous = True
+            logger.debug(f"Linked header to previous for section {doc.sections.index(section)}")
+    logger.debug("Headers restored")
 
 def add_paid_stamp_and_signature(doc):
+    logger.debug("Starting add_paid_stamp_and_signature")
     try:
         # Preserve the headers before making any changes
+        logger.debug("Calling preserve_headers")
         saved_headers = preserve_headers(doc)
+        logger.debug("Headers preserved successfully")
 
         # Fetch images from the URLs
+        logger.debug("Fetching stamp image")
         stamp_data = fetch_image(PAID_STAMP_URL)
+        logger.debug("Fetching signature image")
         signature_data = fetch_image(SIGNATURE_URL)
 
         # Convert images to the required format
+        logger.debug("Converting stamp image to PNG")
         stamp_img = Image.open(stamp_data)
         stamp_io = io.BytesIO()
         stamp_img.save(stamp_io, format="PNG")
         stamp_io.seek(0)
+        logger.debug("Stamp image converted")
 
+        logger.debug("Converting signature image to PNG")
         signature_img = Image.open(signature_data)
         signature_io = io.BytesIO()
         signature_img.save(signature_io, format="PNG")
         signature_io.seek(0)
+        logger.debug("Signature image converted")
 
         # Add the stamp at the end of the document
+        logger.debug("Adding stamp paragraph")
         stamp_paragraph = doc.add_paragraph()
         stamp_run = stamp_paragraph.add_run()
         stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
+        logger.debug("Stamp picture added")
 
         # Access the run's XML element to find the drawing element
         stamp_run_element = stamp_run._r
@@ -376,12 +406,14 @@ def add_paid_stamp_and_signature(doc):
         if not stamp_drawing_elements:
             raise Exception("Could not find drawing element for stamp image")
         stamp_drawing = stamp_drawing_elements[0]
+        logger.debug("Stamp drawing element found")
 
         # Find the a:graphic element to preserve the image data
         graphic_elements = stamp_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
+        logger.debug("Stamp graphic element extracted")
 
         # Use desired positions for stamp
         stamp_horizontal = 5.09 * 914400  # 5.09" in EMUs
@@ -409,11 +441,14 @@ def add_paid_stamp_and_signature(doc):
                 </wp:anchor>
             </w:drawing>
         """))
+        logger.debug("Stamp positioned successfully")
 
         # Add the signature at the end of the document
+        logger.debug("Adding signature paragraph")
         signature_paragraph = doc.add_paragraph()
         signature_run = signature_paragraph.add_run()
         signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
+        logger.debug("Signature picture added")
 
         # Access the run's XML element to find the drawing element
         signature_run_element = signature_run._r
@@ -421,12 +456,14 @@ def add_paid_stamp_and_signature(doc):
         if not signature_drawing_elements:
             raise Exception("Could not find drawing element for signature image")
         signature_drawing = signature_drawing_elements[0]
+        logger.debug("Signature drawing element found")
 
         # Find the a:graphic element to preserve the image data
         graphic_elements = signature_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
+        logger.debug("Signature graphic element extracted")
 
         # Use desired positions for signature
         signature_horizontal = 5.64 * 914400  # 5.64" in EMUs
@@ -454,13 +491,18 @@ def add_paid_stamp_and_signature(doc):
                 </wp:anchor>
             </w:drawing>
         """))
+        logger.debug("Signature positioned successfully")
 
         # Restore the headers after adding the stamp and signature
+        logger.debug("Calling restore_headers")
         restore_headers(doc, saved_headers)
+        logger.debug("Headers restored successfully")
 
+        logger.debug("add_paid_stamp_and_signature completed successfully")
         return doc
 
     except Exception as e:
+        logger.error(f"Error in add_paid_stamp_and_signature: {str(e)}")
         raise Exception(f"Failed to add stamp and signature: {str(e)}")
 
 def get_next_invoice_number():
