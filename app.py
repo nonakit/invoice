@@ -17,6 +17,7 @@ from PIL import Image
 import io
 import re
 import lxml.etree as ET
+import copy
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -311,8 +312,41 @@ def fetch_image(url):
     except Exception as e:
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
+def preserve_headers(doc):
+    """
+    Save the header content for each section to preserve it.
+    Returns a list of header XML elements for each section.
+    """
+    saved_headers = []
+    for section in doc.sections:
+        header = section.header
+        # Save the XML content of the header
+        header_xml = header._element.xml if header._element is not None else None
+        saved_headers.append(header_xml)
+    return saved_headers
+
+def restore_headers(doc, saved_headers):
+    """
+    Restore the header content for each section from the saved headers.
+    """
+    for section, header_xml in zip(doc.sections, saved_headers):
+        if header_xml is not None:
+            # Clear the current header content
+            header = section.header
+            header._element.clear_content()
+            # Restore the saved header content
+            new_header = parse_xml(header_xml)
+            for child in new_header:
+                header._element.append(copy.deepcopy(child))
+        # Link the header to the previous section to prevent header content from being cleared
+        if doc.sections.index(section) > 0:
+            section.header.link_to_previous = True
+
 def add_paid_stamp_and_signature(doc):
     try:
+        # Preserve the headers before making any changes
+        saved_headers = preserve_headers(doc)
+
         # Fetch images from the URLs
         stamp_data = fetch_image(PAID_STAMP_URL)
         signature_data = fetch_image(SIGNATURE_URL)
@@ -418,21 +452,8 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
 
-        # Verify that the header still contains the logo
-        for section in doc.sections:
-            header = section.header
-            if not header.paragraphs:
-                continue
-            has_image = False
-            for paragraph in header.paragraphs:
-                for run in paragraph.runs:
-                    if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict'):
-                        has_image = True
-                        break
-                if has_image:
-                    break
-            if not has_image:
-                raise Exception("Header logo is missing after adding stamp and signature")
+        # Restore the headers after adding the stamp and signature
+        restore_headers(doc, saved_headers)
 
         return doc
 
