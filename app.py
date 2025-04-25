@@ -320,86 +320,9 @@ def fetch_image(url):
         st.write(f"Debug: Error in fetch_image: {str(e)}")
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
-def preserve_headers(doc):
-    st.write("Debug: Preserving headers")
-    try:
-        # Check if there are any sections in the document
-        if not doc.sections:
-            st.write("Debug: No sections found in the document")
-            raise Exception("Document has no sections")
-        
-        st.write(f"Debug: Number of sections: {len(doc.sections)}")
-        saved_headers = []
-        section_index = 0
-        
-        # Convert sections to a list to inspect it
-        sections_list = list(doc.sections)
-        st.write(f"Debug: Sections list: {sections_list}")
-        
-        try:
-            for section in sections_list:
-                st.write(f"Debug: Processing section {section_index}")
-                
-                try:
-                    header = section.header
-                    st.write(f"Debug: Accessed header for section {section_index}")
-                    
-                    # Check if header._element exists
-                    if header._element is None:
-                        st.write(f"Debug: Header element is None for section {section_index}")
-                        header_xml = None
-                    else:
-                        header_xml = header._element.xml
-                        st.write(f"Debug: Header XML for section {section_index}: {header_xml[:100] if header_xml else 'None'}")
-                    
-                    saved_headers.append(header_xml)
-                    st.write(f"Debug: Saved header XML for section {section_index}")
-                
-                except Exception as e:
-                    st.write(f"Debug: Error processing header for section {section_index}: {str(e)}")
-                    raise Exception(f"Failed to process header for section {section_index}: {str(e)}")
-                
-                section_index += 1
-        
-        except Exception as e:
-            st.write(f"Debug: Error iterating over sections: {str(e)}")
-            raise Exception(f"Failed to iterate over sections: {str(e)}")
-        
-        st.write("Debug: Headers preserved")
-        return saved_headers
-    
-    except Exception as e:
-        st.write(f"Debug: Error in preserve_headers: {str(e)}")
-        raise Exception(f"Failed to preserve headers: {str(e)}")
-
-def restore_headers(doc, saved_headers):
-    st.write("Debug: Restoring headers")
-    section_index = 0
-    for section, header_xml in zip(doc.sections, saved_headers):
-        if header_xml is not None:
-            st.write(f"Debug: Restoring header for section {section_index}")
-            header = section.header
-            header_element = header._element
-            for child in list(header_element):
-                header_element.remove(child)
-            new_header = parse_xml(header_xml)
-            for child in new_header:
-                header_element.append(copy.deepcopy(child))
-            st.write("Debug: Header restored")
-        if section_index > 0:
-            section.header.link_to_previous = True
-            st.write(f"Debug: Linked header to previous for section {section_index}")
-        section_index += 1
-    st.write("Debug: Headers restored")
-
 def add_paid_stamp_and_signature(doc):
     st.write("Debug: Starting add_paid_stamp_and_signature")
     try:
-        # Preserve the headers before making any changes
-        st.write("Debug: Calling preserve_headers")
-        saved_headers = preserve_headers(doc)
-        st.write("Debug: Headers preserved successfully")
-
         # Fetch images from the URLs
         st.write("Debug: Fetching stamp image")
         stamp_data = fetch_image(PAID_STAMP_URL)
@@ -520,11 +443,6 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
         st.write("Debug: Signature positioned successfully")
-
-        # Restore the headers after adding the stamp and signature
-        st.write("Debug: Calling restore_headers")
-        restore_headers(doc, saved_headers)
-        st.write("Debug: Headers restored successfully")
 
         st.write("Debug: add_paid_stamp_and_signature completed successfully")
         return doc
