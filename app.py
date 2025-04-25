@@ -328,15 +328,8 @@ def add_paid_stamp_and_signature(doc):
         signature_img.save(signature_io, format="PNG")
         signature_io.seek(0)
 
-        # Add a paragraph after the last table to place the stamp and signature
-        # This ensures we don't interfere with the main content or section breaks
-        last_table = doc.tables[-1]
+        # Add the stamp at the end of the document
         stamp_paragraph = doc.add_paragraph()
-        # Insert the paragraph after the last table
-        doc._body._element.insert(
-            doc.paragraphs.index(stamp_paragraph) + 1,
-            stamp_paragraph._element
-        )
         stamp_run = stamp_paragraph.add_run()
         stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
 
@@ -355,7 +348,7 @@ def add_paid_stamp_and_signature(doc):
 
         # Use desired positions for stamp
         stamp_horizontal = 5.09 * 914400  # 5.09" in EMUs
-        stamp_vertical = 6.64 * 914400   # 6.64" in EMUs
+        stamp_vertical = 6.64 * 914400    # 6.64" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -380,12 +373,8 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
 
-        # Add the signature in a new paragraph
+        # Add the signature at the end of the document
         signature_paragraph = doc.add_paragraph()
-        doc._body._element.insert(
-            doc.paragraphs.index(signature_paragraph) + 1,
-            signature_paragraph._element
-        )
         signature_run = signature_paragraph.add_run()
         signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
 
