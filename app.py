@@ -346,6 +346,10 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
+        # Adjust positions assuming a 1" margin on left and top
+        stamp_horizontal = (4.1 - 1.0) * 914400  # 3.1" in EMUs
+        stamp_vertical = (6.15 - 1.0) * 914400  # 5.15" in EMUs
+
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
             <w:drawing
@@ -354,10 +358,10 @@ def add_paid_stamp_and_signature(doc):
                 <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                     <wp:simplePos x="0" y="0"/>
                     <wp:positionH relativeFrom="page">
-                        <wp:posOffset>{int(4.1 * 914400)}</wp:posOffset>
+                        <wp:posOffset>{int(stamp_horizontal)}</wp:posOffset>
                     </wp:positionH>
                     <wp:positionV relativeFrom="page">
-                        <wp:posOffset>{int(6.15 * 914400)}</wp:posOffset>
+                        <wp:posOffset>{int(stamp_vertical)}</wp:posOffset>
                     </wp:positionV>
                     <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
                     <wp:effectExtent l="0" t="0" r="0" b="0"/>
@@ -387,6 +391,10 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
+        # Adjust positions assuming a 1" margin on left and top
+        signature_horizontal = (4.51 - 1.0) * 914400  # 3.51" in EMUs
+        signature_vertical = (2.69 - 1.0) * 914400  # 1.69" in EMUs
+
         # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
             <w:drawing
@@ -395,10 +403,10 @@ def add_paid_stamp_and_signature(doc):
                 <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                     <wp:simplePos x="0" y="0"/>
                     <wp:positionH relativeFrom="page">
-                        <wp:posOffset>{int(4.51 * 914400)}</wp:posOffset>
+                        <wp:posOffset>{int(signature_horizontal)}</wp:posOffset>
                     </wp:positionH>
                     <wp:positionV relativeFrom="page">
-                        <wp:posOffset>{int(2.69 * 914400)}</wp:posOffset>
+                        <wp:posOffset>{int(signature_vertical)}</wp:posOffset>
                     </wp:positionV>
                     <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
                     <wp:effectExtent l="0" t="0" r="0" b="0"/>
@@ -460,6 +468,10 @@ def load_invoice_data():
         return {k: InvoiceData.from_dict(v) for k, v in data.items()}
     return {}
 
+def sanitize_filename(name):
+    # Remove or replace characters that are invalid in file names
+    return re.sub(r'[<>:"/\\|?*]', '_', name).replace(' ', '_')
+
 def generate_invoice(invoice_data):
     doc = Document('Invoice_Template_MarketixLab.docx')
     replacements = {**invoice_data.client_info, **invoice_data.invoice_details, **invoice_data.financials}
@@ -500,8 +512,14 @@ def generate_invoice(invoice_data):
     if os.path.exists(temp_pdf):
         os.remove(temp_pdf)
     
-    return (docx_output, f"Invoice_{invoice_data.invoice_number}.docx",
-            pdf_output, f"Invoice_{invoice_data.invoice_number}.pdf")
+    # Generate file names based on paid status and client name
+    client_name = sanitize_filename(invoice_data.client_info['{{client_name}}'])
+    prefix = "Paid_Invoice" if invoice_data.mark_as_paid else "Invoice"
+    base_filename = f"{prefix}_{invoice_data.invoice_number}_{client_name}"
+    docx_filename = f"{base_filename}.docx"
+    pdf_filename = f"{base_filename}.pdf"
+    
+    return (docx_output, docx_filename, pdf_output, pdf_filename)
 
 # Streamlit App
 st.title("📄 Invoice Generator")
