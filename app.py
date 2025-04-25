@@ -322,14 +322,43 @@ def fetch_image(url):
 
 def preserve_headers(doc):
     st.write("Debug: Preserving headers")
-    saved_headers = []
-    for section in doc.sections:
-        header = section.header
-        header_xml = header._element.xml if header._element is not None else None
-        saved_headers.append(header_xml)
-        st.write(f"Debug: Saved header XML for section {doc.sections.index(section)}: {header_xml[:100] if header_xml else 'None'}")
-    st.write("Debug: Headers preserved")
-    return saved_headers
+    try:
+        # Check if there are any sections in the document
+        if not doc.sections:
+            st.write("Debug: No sections found in the document")
+            raise Exception("Document has no sections")
+        
+        st.write(f"Debug: Number of sections: {len(doc.sections)}")
+        saved_headers = []
+        for section in doc.sections:
+            section_index = doc.sections.index(section)
+            st.write(f"Debug: Processing section {section_index}")
+            
+            try:
+                header = section.header
+                st.write(f"Debug: Accessed header for section {section_index}")
+                
+                # Check if header._element exists
+                if header._element is None:
+                    st.write(f"Debug: Header element is None for section {section_index}")
+                    header_xml = None
+                else:
+                    header_xml = header._element.xml
+                    st.write(f"Debug: Header XML for section {section_index}: {header_xml[:100] if header_xml else 'None'}")
+                
+                saved_headers.append(header_xml)
+                st.write(f"Debug: Saved header XML for section {section_index}")
+            
+            except Exception as e:
+                st.write(f"Debug: Error processing header for section {section_index}: {str(e)}")
+                raise Exception(f"Failed to process header for section {section_index}: {str(e)}")
+        
+        st.write("Debug: Headers preserved")
+        return saved_headers
+    
+    except Exception as e:
+        st.write(f"Debug: Error in preserve_headers: {str(e)}")
+        raise Exception(f"Failed to preserve headers: {str(e)}")
 
 def restore_headers(doc, saved_headers):
     st.write("Debug: Restoring headers")
@@ -701,7 +730,7 @@ with tab1:
                 invoice_data.client_info = {
                     '{{client_name}}': client_name,
                     '{{client_phone}}': client_phone,
-                    '{{client_email}}': client_email,
+                    '{{client_email}}': clientThailand email,
                     '{{client_address}}': client_address
                 }
                 invoice_data.invoice_details = {
