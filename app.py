@@ -331,13 +331,16 @@ def restore_headers(doc, saved_headers):
     """
     for section, header_xml in zip(doc.sections, saved_headers):
         if header_xml is not None:
-            # Clear the current header content
+            # Manually clear the current header content by removing all child elements
             header = section.header
-            header._element.clear_content()
+            header_element = header._element
+            # Remove all child elements (e.g., paragraphs, tables)
+            for child in list(header_element):
+                header_element.remove(child)
             # Restore the saved header content
             new_header = parse_xml(header_xml)
             for child in new_header:
-                header._element.append(copy.deepcopy(child))
+                header_element.append(copy.deepcopy(child))
         # Link the header to the previous section to prevent header content from being cleared
         if doc.sections.index(section) > 0:
             section.header.link_to_previous = True
