@@ -120,7 +120,7 @@ st.markdown("""
 
 # Direct download URLs for the stamp and signature images
 PAID_STAMP_URL = "https://drive.google.com/uc?export=download&id=1W9PL0DtP0TUk7IcGiMD_ZuLddtQ8gjNo"
-SIGNATURE_URL = "https://drive.google.com/uc?export=download&id=1OaXfq9bAj2sxKQJzX1oFmNmHRv1EwG0E"
+SIGNATURE_URL = "https://drive.google.com/uc?export=download&id=1b6Dcg4spQmvLUMd4neBtLNfdr5l7QtPJ"
 
 # Reuse your existing classes and functions
 class InvoiceData:
@@ -346,7 +346,7 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
-        # Use desired positions directly with relativeFrom="margin"
+        # Use desired positions directly with relativeFrom="page"
         stamp_horizontal = 4.1 * 914400  # 4.1" in EMUs
         stamp_vertical = 6.15 * 914400  # 6.15" in EMUs
 
@@ -357,10 +357,10 @@ def add_paid_stamp_and_signature(doc):
                 xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
                 <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                     <wp:simplePos x="0" y="0"/>
-                    <wp:positionH relativeFrom="margin">
+                    <wp:positionH relativeFrom="page">
                         <wp:posOffset>{int(stamp_horizontal)}</wp:posOffset>
                     </wp:positionH>
-                    <wp:positionV relativeFrom="margin">
+                    <wp:positionV relativeFrom="page">
                         <wp:posOffset>{int(stamp_vertical)}</wp:posOffset>
                     </wp:positionV>
                     <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
@@ -382,7 +382,7 @@ def add_paid_stamp_and_signature(doc):
         signature_run_element = signature_run._r
         signature_drawing_elements = signature_run_element.xpath('.//w:drawing')
         if not signature_drawing_elements:
-            raise Exception("Could not find drawing element for signature image")
+            raise Exception("Could not find drawing element for financieros image")
         signature_drawing = signature_drawing_elements[0]
 
         # Find the a:graphic element to preserve the image data
@@ -391,7 +391,7 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
-        # Use desired positions directly with relativeFrom="margin"
+        # Use desired positions directly with relativeFrom="page"
         signature_horizontal = 4.51 * 914400  # 4.51" in EMUs
         signature_vertical = 2.69 * 914400  # 2.69" in EMUs
 
@@ -402,10 +402,10 @@ def add_paid_stamp_and_signature(doc):
                 xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
                 <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                     <wp:simplePos x="0" y="0"/>
-                    <wp:positionH relativeFrom="margin">
+                    <wp:positionH relativeFrom="page">
                         <wp:posOffset>{int(signature_horizontal)}</wp:posOffset>
                     </wp:positionH>
-                    <wp:positionV relativeFrom="margin">
+                    <wp:positionV relativeFrom="page">
                         <wp:posOffset>{int(signature_vertical)}</wp:posOffset>
                     </wp:positionV>
                     <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
