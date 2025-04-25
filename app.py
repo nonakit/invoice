@@ -320,13 +320,27 @@ def fetch_image(url):
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
 def debug_relationships(doc, stage="Before"):
-    st.write(f"Debug: Inspecting relationships {stage} adding images")
+    # Debug main document relationships
+    st.write(f"Debug: Inspecting main document relationships {stage} adding images")
     try:
         rels = doc.part.rels
         for rel_id, rel in rels.items():
-            st.write(f"Debug: {stage} - Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
+            st.write(f"Debug: {stage} - Main Document Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
     except Exception as e:
-        st.write(f"Debug: Error inspecting relationships {stage}: {str(e)}")
+        st.write(f"Debug: Error inspecting main document relationships {stage}: {str(e)}")
+
+    # Debug header relationships
+    st.write(f"Debug: Inspecting header relationships {stage} adding images")
+    try:
+        for section in doc.sections:
+            header = section.header
+            if header and header.part.rels:
+                for rel_id, rel in header.part.rels.items():
+                    st.write(f"Debug: {stage} - Header Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
+            else:
+                st.write(f"Debug: {stage} - No relationships found in header for section {doc.sections.index(section)}")
+    except Exception as e:
+        st.write(f"Debug: Error inspecting header relationships {stage}: {str(e)}")
 
 def add_paid_stamp_and_signature(doc):
     st.write("Debug: Starting add_paid_stamp_and_signature")
@@ -346,22 +360,32 @@ def add_paid_stamp_and_signature(doc):
         stamp_io = io.BytesIO()
         stamp_img.save(stamp_io, format="PNG")
         stamp_io.seek(0)
-        st.write("Debug: Stamp image converted")
+        # Verify stamp_io content
+        if stamp_io.getbuffer().nbytes == 0:
+            raise Exception("Stamp image buffer is empty after conversion")
+        st.write(f"Debug: Stamp image converted, buffer size: {stamp_io.getbuffer().nbytes} bytes")
 
         st.write("Debug: Converting signature image to PNG")
         signature_img = Image.open(signature_data)
         signature_io = io.BytesIO()
         signature_img.save(signature_io, format="PNG")
         signature_io.seek(0)
-        st.write("Debug: Signature image converted")
+        # Verify signature_io content
+        if signature_io.getbuffer().nbytes == 0:
+            raise Exception("Signature image buffer is empty after conversion")
+        st.write(f"Debug: Signature image converted, buffer size: {signature_io.getbuffer().nbytes} bytes")
 
         # Add the stamp at the end of the document
         st.write("Debug: Adding stamp paragraph")
         stamp_paragraph = doc.add_paragraph()
         stamp_run = stamp_paragraph.add_run()
-        stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
-        stamp_rel_id = stamp_run.part.rels[-1].rId if stamp_run.part.rels else None
-        st.write(f"Debug: Stamp picture added with relationship ID: {stamp_rel_id}")
+        try:
+            stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
+            stamp_rel_id = stamp_run.part.rels[-1].rId if stamp_run.part.rels else None
+            st.write(f"Debug: Stamp picture added with relationship ID: {stamp_rel_id}")
+        except Exception as e:
+            st.write(f"Debug: Failed to add stamp picture: {str(e)}")
+            raise Exception(f"Failed to add stamp picture: {str(e)}")
 
         # Access the run's XML element to find the drawing element
         stamp_run_element = stamp_run._r
@@ -413,9 +437,13 @@ def add_paid_stamp_and_signature(doc):
         st.write("Debug: Adding signature paragraph")
         signature_paragraph = doc.add_paragraph()
         signature_run = signature_paragraph.add_run()
-        signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
-        signature_rel_id = signature_run.part.rels[-1].rId if signature_run.part.rels else None
-        st.write(f"Debug: Signature picture added with relationship ID: {signature_rel_id}")
+        try:
+            signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
+            signature_rel_id = signature_run.part.rels[-1].rId if signature_run.part.rels else None
+            st.write(f"Debug: Signature picture added with relationship ID: {signature_rel_id}")
+        except Exception as e:
+            st.write(f"Debug: Failed to add signature picture: {str(e)}")
+            raise Exception(f"Failed to add signature picture: {str(e)}")
 
         # Access the run's XML element to find the drawing element
         signature_run_element = signature_run._r
