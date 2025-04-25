@@ -346,9 +346,9 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
-        # Adjust positions assuming a 1" margin on left and top
-        stamp_horizontal = (4.1 - 1.0) * 914400  # 3.1" in EMUs
-        stamp_vertical = (6.15 - 1.0) * 914400  # 5.15" in EMUs
+        # Use desired positions directly with relativeFrom="margin"
+        stamp_horizontal = 4.1 * 914400  # 4.1" in EMUs
+        stamp_vertical = 6.15 * 914400  # 6.15" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -357,10 +357,10 @@ def add_paid_stamp_and_signature(doc):
                 xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
                 <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                     <wp:simplePos x="0" y="0"/>
-                    <wp:positionH relativeFrom="page">
+                    <wp:positionH relativeFrom="margin">
                         <wp:posOffset>{int(stamp_horizontal)}</wp:posOffset>
                     </wp:positionH>
-                    <wp:positionV relativeFrom="page">
+                    <wp:positionV relativeFrom="margin">
                         <wp:posOffset>{int(stamp_vertical)}</wp:posOffset>
                     </wp:positionV>
                     <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
@@ -391,9 +391,9 @@ def add_paid_stamp_and_signature(doc):
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
-        # Adjust positions assuming a 1" margin on left and top
-        signature_horizontal = (4.51 - 1.0) * 914400  # 3.51" in EMUs
-        signature_vertical = (2.69 - 1.0) * 914400  # 1.69" in EMUs
+        # Use desired positions directly with relativeFrom="margin"
+        signature_horizontal = 4.51 * 914400  # 4.51" in EMUs
+        signature_vertical = 2.69 * 914400  # 2.69" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
@@ -402,10 +402,10 @@ def add_paid_stamp_and_signature(doc):
                 xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
                 <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
                     <wp:simplePos x="0" y="0"/>
-                    <wp:positionH relativeFrom="page">
+                    <wp:positionH relativeFrom="margin">
                         <wp:posOffset>{int(signature_horizontal)}</wp:posOffset>
                     </wp:positionH>
-                    <wp:positionV relativeFrom="page">
+                    <wp:positionV relativeFrom="margin">
                         <wp:posOffset>{int(signature_vertical)}</wp:posOffset>
                     </wp:positionV>
                     <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
@@ -692,42 +692,60 @@ with tab2:
     if not invoices:
         st.info("No invoices found.")
     else:
-        invoice_numbers = list(invoices.keys())
-        selected_invoice = st.selectbox("Select an Invoice", invoice_numbers)
-        if selected_invoice:
-            invoice_data = invoices[selected_invoice]
-            st.write(f"**Invoice Number:** {invoice_data.invoice_number}")
-            st.write(f"**Client Name:** {invoice_data.client_info['{{client_name}}']}")
-            st.write(f"**Date:** {invoice_data.invoice_details['{{invoice_date}}']}")
-            st.write(f"**Due Date:** {invoice_data.invoice_details['{{due_date}}']}")
-            st.write(f"**Total:** {invoice_data.financials['[grandtotal]']}")
-            st.write(f"**Paid Status:** {'Paid' if invoice_data.mark_as_paid else 'Not Paid'}")
+        # Add filter for paid/unpaid invoices
+        filter_option = st.selectbox(
+            "Filter Invoices",
+            ["All Invoices", "Paid Invoices", "Unpaid Invoices"],
+            key="invoice_filter"
+        )
 
-            if not invoice_data.mark_as_paid:
-                if st.button(f"Mark {selected_invoice} as Paid"):
-                    invoice_data.mark_as_paid = True
-                    save_invoice_data(invoice_data)
-                    st.success(f"Invoice {selected_invoice} marked as paid!")
-                    st.experimental_rerun()
+        # Filter invoices based on selection
+        if filter_option == "Paid Invoices":
+            filtered_invoices = {k: v for k, v in invoices.items() if v.mark_as_paid}
+        elif filter_option == "Unpaid Invoices":
+            filtered_invoices = {k: v for k, v in invoices.items() if not v.mark_as_paid}
+        else:
+            filtered_invoices = invoices
 
-            if st.button(f"Download {selected_invoice}"):
-                try:
-                    docx_output, docx_filename, pdf_output, pdf_filename = generate_invoice(invoice_data)
-                    st.success(f"Invoice {selected_invoice} generated successfully!")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.download_button(
-                            label="Download Invoice (DOCX)",
-                            data=docx_output,
-                            file_name=docx_filename,
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-                    with col2:
-                        st.download_button(
-                            label="Download Invoice (PDF)",
-                            data=pdf_output,
-                            file_name=pdf_filename,
-                            mime="application/pdf"
-                        )
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+        if not filtered_invoices:
+            st.info(f"No {filter_option.lower()} found.")
+        else:
+            invoice_numbers = list(filtered_invoices.keys())
+            selected_invoice = st.selectbox("Select an Invoice", invoice_numbers, key="select_invoice")
+            if selected_invoice:
+                invoice_data = filtered_invoices[selected_invoice]
+                st.write(f"**Invoice Number:** {invoice_data.invoice_number}")
+                st.write(f"**Client Name:** {invoice_data.client_info['{{client_name}}']}")
+                st.write(f"**Date:** {invoice_data.invoice_details['{{invoice_date}}']}")
+                st.write(f"**Due Date:** {invoice_data.invoice_details['{{due_date}}']}")
+                st.write(f"**Total:** {invoice_data.financials['[grandtotal]']}")
+                st.write(f"**Paid Status:** {'Paid' if invoice_data.mark_as_paid else 'Not Paid'}")
+
+                if not invoice_data.mark_as_paid:
+                    if st.button(f"Mark {selected_invoice} as Paid"):
+                        invoice_data.mark_as_paid = True
+                        save_invoice_data(invoice_data)
+                        st.success(f"Invoice {selected_invoice} marked as paid!")
+                        st.experimental_rerun()
+
+                if st.button(f"Download {selected_invoice}"):
+                    try:
+                        docx_output, docx_filename, pdf_output, pdf_filename = generate_invoice(invoice_data)
+                        st.success(f"Invoice {selected_invoice} generated successfully!")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.download_button(
+                                label="Download Invoice (DOCX)",
+                                data=docx_output,
+                                file_name=docx_filename,
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            )
+                        with col2:
+                            st.download_button(
+                                label="Download Invoice (PDF)",
+                                data=pdf_output,
+                                file_name=pdf_filename,
+                                mime="application/pdf"
+                            )
+                    except Exception as e:
+                        st.error(f"An error occurred: {str(e)}")
