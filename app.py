@@ -17,6 +17,7 @@ from PIL import Image
 import io
 import re
 import lxml.etree as ET
+import tempfile
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -259,17 +260,20 @@ def style_financial_table(doc, invoice_data):
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
 
 def fetch_image(url):
+    st.write(f"Debug: Fetching image from URL: {url}")
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         session = requests.Session()
-        response = session.get(url, headers=headers, stream=True, allow_redirects=True)
+        response = session.get(url, headers=headers, stream=True, allow_redirects=True, timeout=30)
+        st.write(f"Debug: Response status code: {response.status_code}")
         
         if response.status_code != 200:
-            raise Exception(f"Failed to fetch image from {url}. Status code: {response.status_code}")
+            raise Exception(f"Failed to fetch image. Status code: {response.status_code}")
 
         content_type = response.headers.get('Content-Type', '')
+        st.write(f"Debug: Content-Type: {content_type}")
         if not content_type.startswith('image/'):
             response_text = response.text
             if "google.com" in response_text and "confirm=" in response_text:
@@ -277,8 +281,10 @@ def fetch_image(url):
                 if confirm_match:
                     confirm_token = confirm_match.group(1)
                     confirm_url = f"{url}&confirm={confirm_token}"
-                    response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True)
+                    st.write(f"Debug: Attempting confirmation with URL: {confirm_url}")
+                    response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True, timeout=30)
                     content_type = response.headers.get('Content-Type', '')
+                    st.write(f"Debug: Content-Type after confirmation: {content_type}")
                     if not content_type.startswith('image/'):
                         response_content = response.text[:200]
                         raise Exception(
@@ -302,125 +308,204 @@ def fetch_image(url):
                 )
 
         image_data = io.BytesIO(response.content)
+        st.write("Debug: Opening image with PIL")
         img = Image.open(image_data)
         img.verify()
         image_data.seek(0)
+        st.write("Debug: Image fetched successfully")
         
         return image_data
 
     except Exception as e:
+        st.write(f"Debug: Error in fetch_image: {str(e)}")
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
-def add_paid_stamp_and_signature(doc):
+def debug_relationships(doc, stage="Before"):
+    # Debug main document relationships
+    st.write(f"Debug: Inspecting main document relationships {stage} adding images")
     try:
+        rels = doc.part.rels
+        for rel_id, rel in rels.items():
+            st.write(f"Debug: {stage} - Main Document Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
+    except Exception as e:
+        st.write(f"Debug: Error inspecting main document relationships {stage}: {str(e)}")
+
+    # Debug header relationships
+    st.write(f"Debug: Inspecting header relationships {stage} adding images")
+    try:
+        for section in doc.sections:
+            header = section.header
+            if header and header.part.rels:
+                for rel_id, rel in header.part.rels.items():
+                    st.write(f"Debug: {stage} - Header Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
+            else:
+                st.write(f"Debug: {stage} - No relationships found in header for section {doc.sections.index(section)}")
+    except Exception as e:
+        st.write(f"Debug: Error inspecting header relationships {stage}: {str(e)}")
+
+def add_paid_stamp_and_signature(doc):
+    st.write("Debug: Starting add_paid_stamp_and_signature")
+    try:
+        # Debug relationships before adding images
+        debug_relationships(doc, "Before")
+
         # Fetch images from the URLs
+        st.write("Debug: Fetching stamp image")
         stamp_data = fetch_image(PAID_STAMP_URL)
+        st.write("Debug: Fetching signature image")
         signature_data = fetch_image(SIGNATURE_URL)
 
-        # Convert images to the required format
-        stamp_img = Image.open(stamp_data)
-        stamp_io = io.BytesIO()
-        stamp_img.save(stamp_io, format="PNG")
-        stamp_io.seek(0)
+        # Save images to temporary files
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as stamp_tmp, \
+             tempfile.NamedTemporaryFile(delete=False, suffix='.png') as signature_tmp:
+            # Process stamp image
+            st.write("Debug: Converting stamp image to PNG and saving to temp file")
+            stamp_img = Image.open(stamp_data)
+            stamp_img.save(stamp_tmp.name, format="PNG")
+            st.write(f"Debug: Stamp image saved to {stamp_tmp.name}")
 
-        signature_img = Image.open(signature_data)
-        signature_io = io.BytesIO()
-        signature_img.save(signature_io, format="PNG")
-        signature_io.seek(0)
+            # Process signature image
+            st.write("Debug: Converting signature image to PNG and saving to temp file")
+            signature_img = Image.open(signature_data)
+            signature_img.save(signature_tmp.name, format="PNG")
+            st.write(f"Debug: Signature image saved to {signature_tmp.name}")
 
-        # Add the stamp with specified position and size
-        stamp_paragraph = doc.add_paragraph()
-        stamp_run = stamp_paragraph.add_run()
-        stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
+            # Add the stamp at the end of the document
+            st.write("Debug: Adding stamp paragraph")
+            stamp_paragraph = doc.add_paragraph()
+            stamp_run = stamp_paragraph.add_run()
+            try:
+                stamp_picture = stamp_run.add_picture(stamp_tmp.name, width=Inches(2.17), height=Inches(2.17))
+                stamp_rel_id = stamp_run.part.rels[-1].rId if stamp_run.part.rels else None
+                st.write(f"Debug: Stamp picture added with relationship ID: {stamp_rel_id}")
+            except Exception as e:
+                st.write(f"Debug: Failed to add stamp picture: {str(e)}")
+                raise Exception(f"Failed to add stamp picture: {str(e)}")
 
-        # Access the run's XML element to find the drawing element
-        stamp_run_element = stamp_run._r
-        stamp_drawing_elements = stamp_run_element.xpath('.//w:drawing')
-        if not stamp_drawing_elements:
-            raise Exception("Could not find drawing element for stamp image")
-        stamp_drawing = stamp_drawing_elements[0]
+            # Access the run's XML element to find the drawing element
+            stamp_run_element = stamp_run._r
+            stamp_drawing_elements = stamp_run_element.xpath('.//w:drawing')
+            if not stamp_drawing_elements:
+                raise Exception("Could not find drawing element for stamp image")
+            stamp_drawing = stamp_drawing_elements[0]
+            st.write("Debug: Stamp drawing element found")
 
-        # Find the a:graphic element to preserve the image data
-        graphic_elements = stamp_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
-        if not graphic_elements:
-            raise Exception("Could not find a:graphic element in stamp drawing")
-        graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
+            # Find the a:graphic element to preserve the image data
+            graphic_elements = stamp_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
+            if not graphic_elements:
+                raise Exception("Could not find a:graphic element in stamp drawing")
+            graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
+            st.write("Debug: Stamp graphic element extracted")
 
-        # Use desired positions directly with relativeFrom="page"
-        stamp_horizontal = 4.1 * 914400  # 4.1" in EMUs
-        stamp_vertical = 6.15 * 914400  # 6.15" in EMUs
+            # Use desired positions for stamp
+            stamp_horizontal = 5.09 * 914400  # 5.09" in EMUs
+            stamp_vertical = 6.64 * 914400    # 6.64" in EMUs
 
-        # Replace the inline drawing with an anchored one for absolute positioning
-        stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
-            <w:drawing
-                xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-                xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
-                <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
-                    <wp:simplePos x="0" y="0"/>
-                    <wp:positionH relativeFrom="page">
-                        <wp:posOffset>{int(stamp_horizontal)}</wp:posOffset>
-                    </wp:positionH>
-                    <wp:positionV relativeFrom="page">
-                        <wp:posOffset>{int(stamp_vertical)}</wp:posOffset>
-                    </wp:positionV>
-                    <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
-                    <wp:effectExtent l="0" t="0" r="0" b="0"/>
-                    <wp:wrapNone/>
-                    <wp:docPr id="1" name="Picture 1"/>
-                    <wp:cNvGraphicFramePr/>
-                    {graphic_xml}
-                </wp:anchor>
-            </w:drawing>
-        """))
+            # Replace the inline drawing with an anchored one for absolute positioning
+            stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
+                <w:drawing
+                    xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+                    <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
+                        <wp:simplePos x="0" y="0"/>
+                        <wp:positionH relativeFrom="page">
+                            <wp:posOffset>{int(stamp_horizontal)}</wp:posOffset>
+                        </wp:positionH>
+                        <wp:positionV relativeFrom="page">
+                            <wp:posOffset>{int(stamp_vertical)}</wp:posOffset>
+                        </wp:positionV>
+                        <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
+                        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+                        <wp:wrapNone/>
+                        <wp:docPr id="1" name="Picture 1"/>
+                        <wp:cNvGraphicFramePr/>
+                        {graphic_xml}
+                    </wp:anchor>
+                </w:drawing>
+            """))
+            st.write("Debug: Stamp positioned successfully")
 
-        # Add the signature with specified position and size
-        signature_paragraph = doc.add_paragraph()
-        signature_run = signature_paragraph.add_run()
-        signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
+            # Debug relationships after adding stamp
+            debug_relationships(doc, "After adding stamp")
 
-        # Access the run's XML element to find the drawing element
-        signature_run_element = signature_run._r
-        signature_drawing_elements = signature_run_element.xpath('.//w:drawing')
-        if not signature_drawing_elements:
-            raise Exception("Could not find drawing element for financieros image")
-        signature_drawing = signature_drawing_elements[0]
+            # Add the signature at the end of the document
+            st.write("Debug: Adding signature paragraph")
+            signature_paragraph = doc.add_paragraph()
+            signature_run = signature_paragraph.add_run()
+            try:
+                signature_picture = signature_run.add_picture(signature_tmp.name, width=Inches(1.92), height=Inches(1.92))
+                signature_rel_id = signature_run.part.rels[-1].rId if signature_run.part.rels else None
+                st.write(f"Debug: Signature picture added with relationship ID: {signature_rel_id}")
+            except Exception as e:
+                st.write(f"Debug: Failed to add signature picture: {str(e)}")
+                raise Exception(f"Failed to add signature picture: {str(e)}")
 
-        # Find the a:graphic element to preserve the image data
-        graphic_elements = signature_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
-        if not graphic_elements:
-            raise Exception("Could not find a:graphic element in signature drawing")
-        graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
+            # Access the run's XML element to find the drawing element
+            signature_run_element = signature_run._r
+            signature_drawing_elements = signature_run_element.xpath('.//w:drawing')
+            if not signature_drawing_elements:
+                raise Exception("Could not find drawing element for signature image")
+            signature_drawing = signature_drawing_elements[0]
+            st.write("Debug: Signature drawing element found")
 
-        # Use desired positions directly with relativeFrom="page"
-        signature_horizontal = 4.51 * 914400  # 4.51" in EMUs
-        signature_vertical = 2.69 * 914400  # 2.69" in EMUs
+            # Find the a:graphic element to preserve the image data
+            graphic_elements = signature_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
+            if not graphic_elements:
+                raise Exception("Could not find a:graphic element in signature drawing")
+            graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
+            st.write("Debug: Signature graphic element extracted")
 
-        # Replace the inline drawing with an anchored one for absolute positioning
-        signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
-            <w:drawing
-                xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-                xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
-                <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
-                    <wp:simplePos x="0" y="0"/>
-                    <wp:positionH relativeFrom="page">
-                        <wp:posOffset>{int(signature_horizontal)}</wp:posOffset>
-                    </wp:positionH>
-                    <wp:positionV relativeFrom="page">
-                        <wp:posOffset>{int(signature_vertical)}</wp:posOffset>
-                    </wp:positionV>
-                    <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
-                    <wp:effectExtent l="0" t="0" r="0" b="0"/>
-                    <wp:wrapNone/>
-                    <wp:docPr id="2" name="Picture 2"/>
-                    <wp:cNvGraphicFramePr/>
-                    {graphic_xml}
-                </wp:anchor>
-            </w:drawing>
-        """))
+            # Use desired positions for signature
+            signature_horizontal = 5.64 * 914400  # 5.64" in EMUs
+            signature_vertical = 8.11 * 914400    # 8.11" in EMUs
 
+            # Replace the inline drawing with an anchored one for absolute positioning
+            signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
+                <w:drawing
+                    xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+                    <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="252" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
+                        <wp:simplePos x="0" y="0"/>
+                        <wp:positionH relativeFrom="page">
+                            <wp:posOffset>{int(signature_horizontal)}</wp:posOffset>
+                        </wp:positionH>
+                        <wp:positionV relativeFrom="page">
+                            <wp:posOffset>{int(signature_vertical)}</wp:posOffset>
+                        </wp:positionV>
+                        <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
+                        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+                        <wp:wrapNone/>
+                        <wp:docPr id="2" name="Picture 2"/>
+                        <wp:cNvGraphicFramePr/>
+                        {graphic_xml}
+                    </wp:anchor>
+                </w:drawing>
+            """))
+            st.write("Debug: Signature positioned successfully")
+
+        # Clean up temporary files
+        if os.path.exists(stamp_tmp.name):
+            os.remove(stamp_tmp.name)
+            st.write(f"Debug: Cleaned up temporary stamp file {stamp_tmp.name}")
+        if os.path.exists(signature_tmp.name):
+            os.remove(signature_tmp.name)
+            st.write(f"Debug: Cleaned up temporary signature file {signature_tmp.name}")
+
+        # Debug relationships after adding signature
+        debug_relationships(doc, "After adding signature")
+
+        st.write("Debug: add_paid_stamp_and_signature completed successfully")
         return doc
 
     except Exception as e:
+        # Clean up temporary files in case of failure
+        if 'stamp_tmp' in locals() and os.path.exists(stamp_tmp.name):
+            os.remove(stamp_tmp.name)
+            st.write(f"Debug: Cleaned up temporary stamp file {stamp_tmp.name} after error")
+        if 'signature_tmp' in locals() and os.path.exists(signature_tmp.name):
+            os.remove(signature_tmp.name)
+            st.write(f"Debug: Cleaned up temporary signature file {signature_tmp.name} after error")
+        st.write(f"Debug: Error in add_paid_stamp_and_signature: {str(e)}")
         raise Exception(f"Failed to add stamp and signature: {str(e)}")
 
 def get_next_invoice_number():
