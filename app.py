@@ -322,7 +322,7 @@ def fetch_image(url):
 
 def debug_relationships(doc, stage="Before"):
     # Debug main document relationships
-    st.write(f"Debug: Inspecting main document relationships {stage} adding images")
+    st.write(f"Debug: Inspecting main document relationships {stage}")
     try:
         rels = doc.part.rels
         for rel_id, rel in rels.items():
@@ -331,7 +331,7 @@ def debug_relationships(doc, stage="Before"):
         st.write(f"Debug: Error inspecting main document relationships {stage}: {str(e)}")
 
     # Debug header relationships
-    st.write(f"Debug: Inspecting header relationships {stage} adding images")
+    st.write(f"Debug: Inspecting header relationships {stage}")
     try:
         for section in doc.sections:
             header = section.header
@@ -343,11 +343,12 @@ def debug_relationships(doc, stage="Before"):
     except Exception as e:
         st.write(f"Debug: Error inspecting header relationships {stage}: {str(e)}")
 
-def add_paid_stamp_and_signature(doc):
+def add_paid_stamp_and_signature(doc_path):
     st.write("Debug: Starting add_paid_stamp_and_signature")
     try:
-        # Debug relationships before adding images
-        debug_relationships(doc, "Before")
+        # Load the document
+        doc = Document(doc_path)
+        debug_relationships(doc, "Before adding stamp and signature")
 
         # Fetch images from the URLs
         st.write("Debug: Fetching stamp image")
@@ -397,9 +398,9 @@ def add_paid_stamp_and_signature(doc):
             graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
             st.write("Debug: Stamp graphic element extracted")
 
-            # Use desired positions for stamp
-            stamp_horizontal = 5.09 * 914400  # 5.09" in EMUs
-            stamp_vertical = 6.64 * 914400    # 6.64" in EMUs
+            # Adjusted positions for stamp (considering 1-inch left margin)
+            stamp_horizontal = (5.09 - 1.0) * 914400  # Adjusted for 1-inch left margin
+            stamp_vertical = (6.64 - 1.0) * 914400   # Adjusted for 1-inch top margin
 
             # Replace the inline drawing with an anchored one for absolute positioning
             stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -455,9 +456,9 @@ def add_paid_stamp_and_signature(doc):
             graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
             st.write("Debug: Signature graphic element extracted")
 
-            # Use desired positions for signature
-            signature_horizontal = 5.64 * 914400  # 5.64" in EMUs
-            signature_vertical = 8.11 * 914400    # 8.11" in EMUs
+            # Adjusted positions for signature (considering 1-inch left and top margins)
+            signature_horizontal = (5.64 - 1.0) * 914400  # Adjusted for 1-inch left margin
+            signature_vertical = (8.11 - 1.0) * 914400    # Adjusted for 1-inch top margin
 
             # Replace the inline drawing with an anchored one for absolute positioning
             signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
@@ -494,8 +495,10 @@ def add_paid_stamp_and_signature(doc):
         # Debug relationships after adding signature
         debug_relationships(doc, "After adding signature")
 
+        # Save the modified document back to the same path
+        doc.save(doc_path)
         st.write("Debug: add_paid_stamp_and_signature completed successfully")
-        return doc
+        return doc_path
 
     except Exception as e:
         # Clean up temporary files in case of failure
@@ -558,6 +561,7 @@ def sanitize_filename(name):
     return re.sub(r'[<>:"/\\|?*]', '_', name).replace(' ', '_')
 
 def generate_invoice(invoice_data):
+    # Step 1: Generate the invoice without stamp and signature
     doc = Document('Invoice_Template_MarketixLab.docx')
     replacements = {**invoice_data.client_info, **invoice_data.invoice_details, **invoice_data.financials}
     if invoice_data.apply_late_fee:
@@ -569,34 +573,44 @@ def generate_invoice(invoice_data):
     doc = update_items_table(doc, invoice_data.items)
     style_financial_table(doc, invoice_data)
 
-    if invoice_data.mark_as_paid:
-        doc = add_paid_stamp_and_signature(doc)
-
+    # Set font for all paragraphs
     for paragraph in doc.paragraphs:
         for run in paragraph.runs:
             run.font.name = "Courier New"
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
-    
-    docx_output = io.BytesIO()
-    doc.save(docx_output)
-    docx_output.seek(0)
-    
-    temp_docx = f"temp_{invoice_data.invoice_number}.docx"
-    temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
+
+    # Save the intermediate document to a temporary file
+    temp_docx = f"temp_{invoice_data.invoice_number}_intermediate.docx"
     doc.save(temp_docx)
-    
+    st.write(f"Debug: Intermediate document saved to {temp_docx}")
+
+    # Step 2: Add stamp and signature if marked as paid
+    if invoice_data.mark_as_paid:
+        add_paid_stamp_and_signature(temp_docx)
+
+    # Step 3: Load the final document for DOCX output
+    final_doc = Document(temp_docx)
+    docx_output = io.BytesIO()
+    final_doc.save(docx_output)
+    docx_output.seek(0)
+
+    # Step 4: Convert to PDF
+    temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
     pypandoc.convert_file(temp_docx, 'pdf', outputfile=temp_pdf)
     
     pdf_output = io.BytesIO()
     with open(temp_pdf, 'rb') as f:
         pdf_output.write(f.read())
     pdf_output.seek(0)
-    
+
+    # Clean up temporary files
     if os.path.exists(temp_docx):
         os.remove(temp_docx)
+        st.write(f"Debug: Cleaned up temporary file {temp_docx}")
     if os.path.exists(temp_pdf):
         os.remove(temp_pdf)
-    
+        st.write(f"Debug: Cleaned up temporary file {temp_pdf}")
+
     # Generate file names based on paid status and client name
     client_name = sanitize_filename(invoice_data.client_info['{{client_name}}'])
     prefix = "Paid_Invoice" if invoice_data.mark_as_paid else "Invoice"
