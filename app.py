@@ -719,7 +719,7 @@ with tab1:
                 value=st.session_state.item_list[i]["quantity"],
                 key=f"qty_{i}"
             )
-分析师        with col4:
+        with col4:
             if st.button("✕", key=f"delete_{i}"):
                 remove_item(i)
 
