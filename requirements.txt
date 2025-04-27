@@ -1,6 +1,8 @@
-streamlit
-python-docx
-tkcalendar
-requests
-pillow
-lxml
+streamlit==1.38.0
+python-docx==1.1.2
+pypandoc==1.13
+requests==2.32.3
+Pillow==10.4.0
+lxml==5.3.0
+pydrive2==1.20.0
+python-docx2pdf==0.1.8
