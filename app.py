@@ -312,8 +312,29 @@ def fetch_image(url):
     except Exception as e:
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
+def copy_header(original_doc, target_doc):
+    """Copy the header content from original_doc to target_doc."""
+    for section_idx, (orig_section, target_section) in enumerate(zip(original_doc.sections, target_doc.sections)):
+        orig_header = orig_section.header
+        target_header = target_section.header
+        
+        # Clear the target header
+        while len(target_header.paragraphs) > 0:
+            target_header._element.remove(target_header.paragraphs[0]._element)
+        
+        # Copy paragraphs from the original header
+        for paragraph in orig_header.paragraphs:
+            new_paragraph = target_header.add_paragraph()
+            new_paragraph._element.append(paragraph._element)
+            # Note: This copies the XML directly, preserving images and formatting
+
 def add_paid_stamp_and_signature(doc):
     try:
+        # Save a copy of the document before adding images
+        temp_original = f"temp_original_{datetime.now().strftime('%Y%m%d%H%M%S')}.docx"
+        doc.save(temp_original)
+        original_doc = Document(temp_original)
+
         # Fetch images from the URLs
         stamp_data = fetch_image(PAID_STAMP_URL)
         signature_data = fetch_image(SIGNATURE_URL)
@@ -339,29 +360,6 @@ def add_paid_stamp_and_signature(doc):
             raise Exception(f"Signature temporary file {signature_tmp.name} does not exist")
         if not os.access(signature_tmp.name, os.R_OK):
             raise Exception(f"Signature temporary file {signature_tmp.name} is not readable")
-
-        # Make a copy of the header content before modifying the document
-        header_content = {}
-        for i, section in enumerate(doc.sections):
-            header = section.header
-            header_content[i] = []
-            for paragraph in header.paragraphs:
-                paragraph_data = {
-                    'text': paragraph.text,
-                    'alignment': paragraph.alignment,
-                    'runs': []
-                }
-                for run in paragraph.runs:
-                    run_data = {
-                        'text': run.text,
-                        'font_name': run.font.name,
-                        'bold': run.font.bold,
-                        'italic': run.font.italic,
-                        'has_image': len(run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict')) > 0,
-                        'xml': ET.tostring(run._element, encoding='unicode') if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict') else None
-                    }
-                    paragraph_data['runs'].append(run_data)
-                header_content[i].append(paragraph_data)
 
         # Add the stamp at the end of the document
         stamp_paragraph = doc.add_paragraph()
@@ -453,34 +451,22 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
 
-        # Restore the header content
-        for section_idx, section in enumerate(doc.sections):
+        # Check if the header is still intact; if not, restore it from the original document
+        for section in doc.sections:
             header = section.header
-            # Clear existing paragraphs in the header
-            while len(header.paragraphs) > 0:
-                header._element.remove(header.paragraphs[0]._element)
-            
-            # Restore paragraphs from saved header content
-            if section_idx in header_content:
-                for para_data in header_content[section_idx]:
-                    new_paragraph = header.add_paragraph()
-                    new_paragraph.text = para_data['text']
-                    if para_data['alignment'] is not None:
-                        new_paragraph.alignment = para_data['alignment']
-                    for run_data in para_data['runs']:
-                        run = new_paragraph.add_run()
-                        if run_data['has_image'] and run_data['xml']:
-                            # Restore the image run by parsing the saved XML
-                            run._element.append(parse_xml(run_data['xml']))
-                        else:
-                            run.text = run_data['text']
-                            if run_data['font_name']:
-                                run.font.name = run_data['font_name']
-                                run._element.rPr.rFonts.set(qn('w:eastAsia'), run_data['font_name'])
-                            run.font.bold = run_data['bold']
-                            run.font.italic = run_data['italic']
+            has_content = False
+            for paragraph in header.paragraphs:
+                if paragraph.text.strip() or paragraph.runs:
+                    has_content = True
+                    break
+            if not has_content:
+                # Header is empty; restore from original document
+                copy_header(original_doc, doc)
+                break
 
         # Clean up temporary files
+        if os.path.exists(temp_original):
+            os.remove(temp_original)
         if os.path.exists(stamp_tmp.name):
             os.remove(stamp_tmp.name)
         if os.path.exists(signature_tmp.name):
@@ -490,6 +476,8 @@ def add_paid_stamp_and_signature(doc):
 
     except Exception as e:
         # Clean up temporary files in case of failure
+        if 'temp_original' in locals() and os.path.exists(temp_original):
+            os.remove(temp_original)
         if 'stamp_tmp' in locals() and os.path.exists(stamp_tmp.name):
             os.remove(stamp_tmp.name)
         if 'signature_tmp' in locals() and os.path.exists(signature_tmp.name):
