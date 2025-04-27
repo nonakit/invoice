@@ -1,3 +1,4 @@
+# === IMPORTS AND SETUP ===
 import streamlit as st
 import docx
 from docx import Document
@@ -121,11 +122,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Direct download URLs for the stamp and signature images
-PAID_STAMP_URL = "https://drive.google.com/uc?export=download&id=1W9PL0DtP0TUk7IcGiMD_ZuLddtQ8gjNo"
-SIGNATURE_URL = "https://drive.google.com/uc?export=download&id=1b6Dcg4spQmvLUMd4neBtLNfdr5l7QtPJ"
-
-# Reuse your existing classes and functions
+# === UTILITY CLASSES AND FUNCTIONS ===
 class InvoiceData:
     def __init__(self):
         self.client_info = {}
@@ -170,6 +167,56 @@ def format_currency(amount):
     else:
         return f"Rp {amount:,.2f}"
 
+def get_next_invoice_number():
+    count_file = "invoice_count.txt"
+    year = "2025"
+    if os.path.exists(count_file):
+        with open(count_file, 'r') as f:
+            try:
+                count = int(f.read().strip())
+            except ValueError:
+                count = 0
+    else:
+        count = 0
+    count += 1
+    return f"INV{year}{count:03d}", count
+
+def save_invoice_count(count):
+    with open("invoice_count.txt", 'w') as f:
+        f.write(str(count))
+
+def validate_date_format(date_str):
+    try:
+        datetime.strptime(date_str, "%d.%m.%Y")
+        return True
+    except ValueError:
+        return False
+
+def save_invoice_data(invoice_data):
+    invoice_db = "invoices.json"
+    if os.path.exists(invoice_db):
+        with open(invoice_db, 'r') as f:
+            invoices = json.load(f)
+    else:
+        invoices = {}
+
+    invoices[invoice_data.invoice_number] = invoice_data.to_dict()
+    with open(invoice_db, 'w') as f:
+        json.dump(invoices, f, indent=4)
+
+def load_invoice_data():
+    invoice_db = "invoices.json"
+    if os.path.exists(invoice_db):
+        with open(invoice_db, 'r') as f:
+            data = json.load(f)
+        return {k: InvoiceData.from_dict(v) for k, v in data.items()}
+    return {}
+
+def sanitize_filename(name):
+    # Remove or replace characters that are invalid in file names
+    return re.sub(r'[<>:"/\\|?*]', '_', name).replace(' ', '_')
+
+# === DOCUMENT STYLING FUNCTIONS ===
 def set_cell_border(cell, side, color="FFFFFF", sz=4):
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -202,6 +249,26 @@ def apply_cell_style(cell, bg_color="#ddefd5"):
     set_white_borders(cell, sz=6)
     set_cell_font(cell)
 
+def style_financial_table(doc, invoice_data):
+    financial_table = doc.tables[1]
+    for row in financial_table.rows:
+        for cell in row.cells:
+            set_white_borders(cell)
+            set_cell_font(cell)
+        for paragraph in row.cells[1].paragraphs:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    if invoice_data.apply_late_fee:
+        late_fee_cell = financial_table.rows[3].cells[0]
+        if "LATE FEE" in late_fee_cell.text:
+            original_text = late_fee_cell.text
+            late_fee_cell.text = ""
+            paragraph = late_fee_cell.paragraphs[0]
+            run = paragraph.add_run(original_text)
+            run.font.color.rgb = RGBColor.from_string('d95132')
+            run.font.name = "Courier New"
+            run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
+
+# === INVOICE GENERATION LOGIC ===
 def replace_placeholders(doc, replacements):
     for paragraph in doc.paragraphs:
         for key, value in replacements.items():
@@ -236,30 +303,65 @@ def update_items_table(doc, items):
         for i, cell in enumerate(row.cells):
             apply_cell_style(cell)
             alignments = [WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.RIGHT, 
-                         WD_ALIGN_PARAGRAPH.CENTER, WDALIGN_PARAGRAPH.RIGHT]
-        for paragraph in cell.paragraphs:
-            paragraph.alignment = alignments[i]
+                         WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.RIGHT]
+            for paragraph in cell.paragraphs:
+                paragraph.alignment = alignments[i]
     items_table._tbl.remove(placeholder_row._tr)
     return doc
 
-def style_financial_table(doc, invoice_data):
-    financial_table = doc.tables[1]
-    for row in financial_table.rows:
-        for cell in row.cells:
-            set_white_borders(cell)
-            set_cell_font(cell)
-        for paragraph in row.cells[1].paragraphs:
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+def generate_invoice(invoice_data):
+    doc = Document('Invoice_Template_MarketixLab.docx')
+    replacements = {**invoice_data.client_info, **invoice_data.invoice_details, **invoice_data.financials}
     if invoice_data.apply_late_fee:
-        late_fee_cell = financial_table.rows[3].cells[0]
-        if "LATE FEE" in late_fee_cell.text:
-            original_text = late_fee_cell.text
-            late_fee_cell.text = ""
-            paragraph = late_fee_cell.paragraphs[0]
-            run = paragraph.add_run(original_text)
-            run.font.color.rgb = RGBColor.from_string('d95132')
+        replacements['{{LATE FEE:}}'] = 'LATE FEE'
+    else:
+        replacements['{{LATE FEE:}}'] = ''
+        replacements['[latefee]'] = ''
+    doc = replace_placeholders(doc, replacements)
+    doc = update_items_table(doc, invoice_data.items)
+    style_financial_table(doc, invoice_data)
+
+    if invoice_data.mark_as_paid:
+        doc = add_paid_stamp_and_signature(doc)
+
+    for paragraph in doc.paragraphs:
+        for run in paragraph.runs:
             run.font.name = "Courier New"
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
+    
+    docx_output = io.BytesIO()
+    doc.save(docx_output)
+    docx_output.seek(0)
+    
+    temp_docx = f"temp_{invoice_data.invoice_number}.docx"
+    temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
+    doc.save(temp_docx)
+    
+    pypandoc.convert_file(temp_docx, 'pdf', outputfile=temp_pdf)
+    
+    pdf_output = io.BytesIO()
+    with open(temp_pdf, 'rb') as f:
+        pdf_output.write(f.read())
+    pdf_output.seek(0)
+    
+    if os.path.exists(temp_docx):
+        os.remove(temp_docx)
+    if os.path.exists(temp_pdf):
+        os.remove(temp_pdf)
+    
+    # Generate file names based on paid status and client name
+    client_name = sanitize_filename(invoice_data.client_info['{{client_name}}'])
+    prefix = "Paid_Invoice" if invoice_data.mark_as_paid else "Invoice"
+    base_filename = f"{prefix}_{invoice_data.invoice_number}_{client_name}"
+    docx_filename = f"{base_filename}.docx"
+    pdf_filename = f"{base_filename}.pdf"
+    
+    return (docx_output, docx_filename, pdf_output, pdf_filename)
+
+# === STAMP AND SIGNATURE FUNCTIONS ===
+# Direct download URLs for the stamp and signature images
+PAID_STAMP_URL = "https://drive.google.com/uc?export=download&id=1W9PL0DtP0TUk7IcGiMD_ZuLddtQ8gjNo"
+SIGNATURE_URL = "https://drive.google.com/uc?export=download&id=1b6Dcg4spQmvLUMd4neBtLNfdr5l7QtPJ"
 
 def fetch_image(url):
     try:
@@ -448,105 +550,7 @@ def add_paid_stamp_and_signature(doc):
             os.remove(signature_tmp.name)
         raise Exception(f"Failed to add stamp and signature: {str(e)}")
 
-def get_next_invoice_number():
-    count_file = "invoice_count.txt"
-    year = "2025"
-    if os.path.exists(count_file):
-        with open(count_file, 'r') as f:
-            try:
-                count = int(f.read().strip())
-            except ValueError:
-                count = 0
-    else:
-        count = 0
-    count += 1
-    return f"INV{year}{count:03d}", count
-
-def save_invoice_count(count):
-    with open("invoice_count.txt", 'w') as f:
-        f.write(str(count))
-
-def validate_date_format(date_str):
-    try:
-        datetime.strptime(date_str, "%d.%m.%Y")
-        return True
-    except ValueError:
-        return False
-
-def save_invoice_data(invoice_data):
-    invoice_db = "invoices.json"
-    if os.path.exists(invoice_db):
-        with open(invoice_db, 'r') as f:
-            invoices = json.load(f)
-    else:
-        invoices = {}
-
-    invoices[invoice_data.invoice_number] = invoice_data.to_dict()
-    with open(invoice_db, 'w') as f:
-        json.dump(invoices, f, indent=4)
-
-def load_invoice_data():
-    invoice_db = "invoices.json"
-    if os.path.exists(invoice_db):
-        with open(invoice_db, 'r') as f:
-            data = json.load(f)
-        return {k: InvoiceData.from_dict(v) for k, v in data.items()}
-    return {}
-
-def sanitize_filename(name):
-    # Remove or replace characters that are invalid in file names
-    return re.sub(r'[<>:"/\\|?*]', '_', name).replace(' ', '_')
-
-def generate_invoice(invoice_data):
-    doc = Document('Invoice_Template_MarketixLab.docx')
-    replacements = {**invoice_data.client_info, **invoice_data.invoice_details, **invoice_data.financials}
-    if invoice_data.apply_late_fee:
-        replacements['{{LATE FEE:}}'] = 'LATE FEE'
-    else:
-        replacements['{{LATE FEE:}}'] = ''
-        replacements['[latefee]'] = ''
-    doc = replace_placeholders(doc, replacements)
-    doc = update_items_table(doc, invoice_data.items)
-    style_financial_table(doc, invoice_data)
-
-    if invoice_data.mark_as_paid:
-        doc = add_paid_stamp_and_signature(doc)
-
-    for paragraph in doc.paragraphs:
-        for run in paragraph.runs:
-            run.font.name = "Courier New"
-            run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
-    
-    docx_output = io.BytesIO()
-    doc.save(docx_output)
-    docx_output.seek(0)
-    
-    temp_docx = f"temp_{invoice_data.invoice_number}.docx"
-    temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
-    doc.save(temp_docx)
-    
-    pypandoc.convert_file(temp_docx, 'pdf', outputfile=temp_pdf)
-    
-    pdf_output = io.BytesIO()
-    with open(temp_pdf, 'rb') as f:
-        pdf_output.write(f.read())
-    pdf_output.seek(0)
-    
-    if os.path.exists(temp_docx):
-        os.remove(temp_docx)
-    if os.path.exists(temp_pdf):
-        os.remove(temp_pdf)
-    
-    # Generate file names based on paid status and client name
-    client_name = sanitize_filename(invoice_data.client_info['{{client_name}}'])
-    prefix = "Paid_Invoice" if invoice_data.mark_as_paid else "Invoice"
-    base_filename = f"{prefix}_{invoice_data.invoice_number}_{client_name}"
-    docx_filename = f"{base_filename}.docx"
-    pdf_filename = f"{base_filename}.pdf"
-    
-    return (docx_output, docx_filename, pdf_output, pdf_filename)
-
-# Streamlit App
+# === STREAMLIT UI AND APP LOGIC ===
 st.title("📄 Invoice Generator")
 st.markdown("Create professional invoices with ease using this streamlined tool.")
 
