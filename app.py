@@ -17,6 +17,7 @@ from PIL import Image
 import io
 import re
 import lxml.etree as ET
+import tempfile
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -317,17 +318,28 @@ def add_paid_stamp_and_signature(doc):
         stamp_data = fetch_image(PAID_STAMP_URL)
         signature_data = fetch_image(SIGNATURE_URL)
 
-        # Convert images to the required format
-        stamp_img = Image.open(stamp_data)
-        stamp_io = io.BytesIO()
-        stamp_img.save(stamp_io, format="PNG")
-        stamp_io.seek(0)
+        # Save images to temporary files
+        stamp_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+        signature_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
 
+        # Process stamp image
+        stamp_img = Image.open(stamp_data)
+        stamp_img.save(stamp_tmp.name, format="PNG")
+        stamp_tmp.close()
+        if not os.path.exists(stamp_tmp.name):
+            raise Exception(f"Stamp temporary file {stamp_tmp.name} does not exist")
+        if not os.access(stamp_tmp.name, os.R_OK):
+            raise Exception(f"Stamp temporary file {stamp_tmp.name} is not readable")
+
+        # Process signature image
         signature_img = Image.open(signature_data)
-        signature_io = io.BytesIO()
-        signature_img.save(signature_io, format="PNG")
-        signature_io.seek(0)
-        
+        signature_img.save(signature_tmp.name, format="PNG")
+        signature_tmp.close()
+        if not os.path.exists(signature_tmp.name):
+            raise Exception(f"Signature temporary file {signature_tmp.name} does not exist")
+        if not os.access(signature_tmp.name, os.R_OK):
+            raise Exception(f"Signature temporary file {signature_tmp.name} is not readable")
+
         # Make a copy of the header content before modifying the document
         header_content = {}
         for i, section in enumerate(doc.sections):
@@ -345,7 +357,8 @@ def add_paid_stamp_and_signature(doc):
                         'font_name': run.font.name,
                         'bold': run.font.bold,
                         'italic': run.font.italic,
-                        'has_image': len(run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict')) > 0
+                        'has_image': len(run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict')) > 0,
+                        'xml': ET.tostring(run._element, encoding='unicode') if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict') else None
                     }
                     paragraph_data['runs'].append(run_data)
                 header_content[i].append(paragraph_data)
@@ -353,7 +366,7 @@ def add_paid_stamp_and_signature(doc):
         # Add the stamp at the end of the document
         stamp_paragraph = doc.add_paragraph()
         stamp_run = stamp_paragraph.add_run()
-        stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
+        stamp_picture = stamp_run.add_picture(stamp_tmp.name, width=Inches(2.17), height=Inches(2.17))
 
         # Access the run's XML element to find the drawing element
         stamp_run_element = stamp_run._r
@@ -398,7 +411,7 @@ def add_paid_stamp_and_signature(doc):
         # Add the signature at the end of the document
         signature_paragraph = doc.add_paragraph()
         signature_run = signature_paragraph.add_run()
-        signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
+        signature_picture = signature_run.add_picture(signature_tmp.name, width=Inches(1.92), height=Inches(1.92))
 
         # Access the run's XML element to find the drawing element
         signature_run_element = signature_run._r
@@ -440,20 +453,47 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
 
-        # Create a temporary file to save and reload the document to fix header issues
-        temp_file = f"temp_header_fix_{datetime.now().strftime('%Y%m%d%H%M%S')}.docx"
-        doc.save(temp_file)
-        
-        # Reload the document
-        reloaded_doc = Document(temp_file)
-        
-        # Remove the temporary file
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
+        # Restore the header content
+        for section_idx, section in enumerate(doc.sections):
+            header = section.header
+            # Clear existing paragraphs in the header
+            while len(header.paragraphs) > 0:
+                header._element.remove(header.paragraphs[0]._element)
             
-        return reloaded_doc
+            # Restore paragraphs from saved header content
+            if section_idx in header_content:
+                for para_data in header_content[section_idx]:
+                    new_paragraph = header.add_paragraph()
+                    new_paragraph.text = para_data['text']
+                    if para_data['alignment'] is not None:
+                        new_paragraph.alignment = para_data['alignment']
+                    for run_data in para_data['runs']:
+                        run = new_paragraph.add_run()
+                        if run_data['has_image'] and run_data['xml']:
+                            # Restore the image run by parsing the saved XML
+                            run._element.append(parse_xml(run_data['xml']))
+                        else:
+                            run.text = run_data['text']
+                            if run_data['font_name']:
+                                run.font.name = run_data['font_name']
+                                run._element.rPr.rFonts.set(qn('w:eastAsia'), run_data['font_name'])
+                            run.font.bold = run_data['bold']
+                            run.font.italic = run_data['italic']
+
+        # Clean up temporary files
+        if os.path.exists(stamp_tmp.name):
+            os.remove(stamp_tmp.name)
+        if os.path.exists(signature_tmp.name):
+            os.remove(signature_tmp.name)
+
+        return doc
 
     except Exception as e:
+        # Clean up temporary files in case of failure
+        if 'stamp_tmp' in locals() and os.path.exists(stamp_tmp.name):
+            os.remove(stamp_tmp.name)
+        if 'signature_tmp' in locals() and os.path.exists(signature_tmp.name):
+            os.remove(signature_tmp.name)
         raise Exception(f"Failed to add stamp and signature: {str(e)}")
 
 def get_next_invoice_number():
