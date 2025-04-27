@@ -18,9 +18,7 @@ import re
 import lxml.etree as ET
 import tempfile
 import shutil
-import platform
 import subprocess
-from docx2pdf import convert  # For Windows with Microsoft Word
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -150,7 +148,7 @@ class InvoiceData:
     def from_dict(data):
         invoice = InvoiceData()
         invoice.client_info = data.get("client_info", {})
-        invoice.invoice_details = data.get("invoice_details", {})
+        invoice.invoice_details =, data.get("invoice_details", {})
         invoice.items = data.get("items", [])
         invoice.financials = data.get("financials", {})
         invoice.apply_late_fee = data.get("apply_late_fee", False)
@@ -336,19 +334,26 @@ def generate_invoice(invoice_data):
     docx_output.seek(0)
     
     # Save the .docx temporarily for PDF conversion
-    temp_docx = f"temp_{invoice_data.invoice_number}.docx"
-    temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
-    doc.save(temp_docx)
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_docx_file:
+        temp_docx = temp_docx_file.name
+        doc.save(temp_docx)
 
-    # Convert to PDF based on the platform
-    system = platform.system()
+    temp_pdf = f"{temp_docx}.pdf"
+
+    # Use LibreOffice on Streamlit Cloud (Linux)
     try:
-        if system == "Windows":
-            # Use python-docx2pdf on Windows (requires Microsoft Word)
-            convert(temp_docx, temp_pdf)
-        else:
-            # Use LibreOffice on Linux/Mac (e.g., Streamlit Community Cloud)
-            subprocess.run([
+        # Verify LibreOffice is available
+        libreoffice_check = subprocess.run(
+            ["which", "libreoffice"],
+            capture_output=True,
+            text=True
+        )
+        if libreoffice_check.returncode != 0:
+            raise Exception("LibreOffice not found on the system. Ensure it is installed via packages.txt.")
+
+        # Run LibreOffice conversion
+        result = subprocess.run(
+            [
                 "libreoffice",
                 "--headless",
                 "--convert-to",
@@ -356,9 +361,26 @@ def generate_invoice(invoice_data):
                 "--outdir",
                 os.path.dirname(temp_docx),
                 temp_docx
-            ], check=True)
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60  # Add a timeout to prevent hanging
+        )
+        if result.returncode != 0:
+            raise Exception(f"LibreOffice conversion failed: {result.stderr}")
+
+        # Check if the PDF was created
+        if not os.path.exists(temp_pdf):
+            raise Exception("PDF file was not created by LibreOffice.")
+
+    except subprocess.TimeoutExpired:
+        raise Exception("LibreOffice conversion timed out after 60 seconds.")
     except Exception as e:
         raise Exception(f"Failed to convert .docx to PDF: {str(e)}")
+    finally:
+        # Clean up temporary .docx file
+        if os.path.exists(temp_docx):
+            os.remove(temp_docx)
 
     # Read the generated PDF
     pdf_output = io.BytesIO()
@@ -366,9 +388,7 @@ def generate_invoice(invoice_data):
         pdf_output.write(f.read())
     pdf_output.seek(0)
     
-    # Clean up temporary files
-    if os.path.exists(temp_docx):
-        os.remove(temp_docx)
+    # Clean up temporary PDF file
     if os.path.exists(temp_pdf):
         os.remove(temp_pdf)
     
