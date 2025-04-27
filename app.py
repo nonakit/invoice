@@ -1,4 +1,3 @@
-```python
 # === IMPORTS AND SETUP ===
 import streamlit as st
 import docx
@@ -18,9 +17,10 @@ from PIL import Image
 import re
 import lxml.etree as ET
 import tempfile
-import zipfile
 import shutil
+import platform
 import subprocess
+from docx2pdf import convert  # For Windows with Microsoft Word
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -324,51 +324,53 @@ def generate_invoice(invoice_data):
     if invoice_data.mark_as_paid:
         doc = add_paid_stamp_and_signature(doc)
 
+    # Ensure all text uses the correct font
     for paragraph in doc.paragraphs:
         for run in paragraph.runs:
             run.font.name = "Courier New"
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
     
+    # Prepare the .docx output
     docx_output = io.BytesIO()
     doc.save(docx_output)
     docx_output.seek(0)
     
-    # Save DOCX to a temporary file for PDF conversion
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_docx:
-        temp_docx.write(docx_output.getvalue())
-        temp_docx_path = temp_docx.name
-    
-    temp_pdf_path = temp_docx_path.replace('.docx', '.pdf')
-    
-    # Convert DOCX to PDF using LibreOffice command line
+    # Save the .docx temporarily for PDF conversion
+    temp_docx = f"temp_{invoice_data.invoice_number}.docx"
+    temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
+    doc.save(temp_docx)
+
+    # Convert to PDF based on the platform
+    system = platform.system()
     try:
-        subprocess.run([
-            "libreoffice",
-            "--headless",
-            "--convert-to",
-            "pdf",
-            temp_docx_path,
-            "--outdir",
-            os.path.dirname(temp_docx_path)
-        ], check=True, timeout=30)
-    except subprocess.CalledProcessError as e:
-        raise Exception(f"LibreOffice conversion failed: {str(e)}")
-    except subprocess.TimeoutExpired:
-        raise Exception("LibreOffice conversion timed out")
-    except FileNotFoundError:
-        raise Exception("LibreOffice is not installed or not found in PATH")
-    
-    # Read PDF into BytesIO
+        if system == "Windows":
+            # Use python-docx2pdf on Windows (requires Microsoft Word)
+            convert(temp_docx, temp_pdf)
+        else:
+            # Use LibreOffice on Linux/Mac (e.g., Streamlit Community Cloud)
+            subprocess.run([
+                "libreoffice",
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                os.path.dirname(temp_docx),
+                temp_docx
+            ], check=True)
+    except Exception as e:
+        raise Exception(f"Failed to convert .docx to PDF: {str(e)}")
+
+    # Read the generated PDF
     pdf_output = io.BytesIO()
-    with open(temp_pdf_path, 'rb') as f:
+    with open(temp_pdf, 'rb') as f:
         pdf_output.write(f.read())
     pdf_output.seek(0)
     
     # Clean up temporary files
-    if os.path.exists(temp_docx_path):
-        os.remove(temp_docx_path)
-    if os.path.exists(temp_pdf_path):
-        os.remove(temp_pdf_path)
+    if os.path.exists(temp_docx):
+        os.remove(temp_docx)
+    if os.path.exists(temp_pdf):
+        os.remove(temp_pdf)
     
     # Generate file names based on paid status and client name
     client_name = sanitize_filename(invoice_data.client_info['{{client_name}}'])
