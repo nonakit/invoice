@@ -17,7 +17,6 @@ from PIL import Image
 import io
 import re
 import lxml.etree as ET
-import tempfile
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -260,20 +259,17 @@ def style_financial_table(doc, invoice_data):
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
 
 def fetch_image(url):
-    st.write(f"Debug: Fetching image from URL: {url}")
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         session = requests.Session()
-        response = session.get(url, headers=headers, stream=True, allow_redirects=True, timeout=30)
-        st.write(f"Debug: Response status code: {response.status_code}")
+        response = session.get(url, headers=headers, stream=True, allow_redirects=True)
         
         if response.status_code != 200:
-            raise Exception(f"Failed to fetch image. Status code: {response.status_code}")
+            raise Exception(f"Failed to fetch image from {url}. Status code: {response.status_code}")
 
         content_type = response.headers.get('Content-Type', '')
-        st.write(f"Debug: Content-Type: {content_type}")
         if not content_type.startswith('image/'):
             response_text = response.text
             if "google.com" in response_text and "confirm=" in response_text:
@@ -281,10 +277,8 @@ def fetch_image(url):
                 if confirm_match:
                     confirm_token = confirm_match.group(1)
                     confirm_url = f"{url}&confirm={confirm_token}"
-                    st.write(f"Debug: Attempting confirmation with URL: {confirm_url}")
-                    response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True, timeout=30)
+                    response = session.get(confirm_url, headers=headers, stream=True, allow_redirects=True)
                     content_type = response.headers.get('Content-Type', '')
-                    st.write(f"Debug: Content-Type after confirmation: {content_type}")
                     if not content_type.startswith('image/'):
                         response_content = response.text[:200]
                         raise Exception(
@@ -308,97 +302,36 @@ def fetch_image(url):
                 )
 
         image_data = io.BytesIO(response.content)
-        st.write("Debug: Opening image with PIL")
         img = Image.open(image_data)
         img.verify()
         image_data.seek(0)
-        st.write("Debug: Image fetched successfully")
         
         return image_data
 
     except Exception as e:
-        st.write(f"Debug: Error in fetch_image: {str(e)}")
         raise Exception(f"Error fetching image from {url}: {str(e)}")
 
-def debug_relationships(doc, stage="Before"):
-    # Debug main document relationships
-    st.write(f"Debug: Inspecting main document relationships {stage}")
+def add_paid_stamp_and_signature(doc):
     try:
-        rels = doc.part.rels
-        for rel_id, rel in rels.items():
-            st.write(f"Debug: {stage} - Main Document Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
-    except Exception as e:
-        st.write(f"Debug: Error inspecting main document relationships {stage}: {str(e)}")
-
-    # Debug header relationships
-    st.write(f"Debug: Inspecting header relationships {stage}")
-    try:
-        for section in doc.sections:
-            header = section.header
-            if header and header.part.rels:
-                for rel_id, rel in header.part.rels.items():
-                    st.write(f"Debug: {stage} - Header Relationship ID: {rel_id}, Target: {rel.target_ref}, Type: {rel.reltype}")
-            else:
-                st.write(f"Debug: {stage} - No relationships found in header for section {doc.sections.index(section)}")
-    except Exception as e:
-        st.write(f"Debug: Error inspecting header relationships {stage}: {str(e)}")
-
-def add_paid_stamp_and_signature(doc_path):
-    st.write("Debug: Starting add_paid_stamp_and_signature")
-    try:
-        # Load the document
-        st.write(f"Debug: Loading document from {doc_path}")
-        doc = Document(doc_path)
-        debug_relationships(doc, "Before adding stamp and signature")
-
         # Fetch images from the URLs
-        st.write("Debug: Fetching stamp image")
         stamp_data = fetch_image(PAID_STAMP_URL)
-        st.write("Debug: Fetching signature image")
         signature_data = fetch_image(SIGNATURE_URL)
 
-        # Save images to temporary files and keep them open
-        stamp_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-        signature_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-        
-        # Process stamp image
-        st.write("Debug: Converting stamp image to PNG and saving to temp file")
+        # Convert images to the required format
         stamp_img = Image.open(stamp_data)
-        stamp_img.save(stamp_tmp.name, format="PNG")
-        stamp_tmp.close()  # Close the file to ensure it's written
-        st.write(f"Debug: Stamp image saved to {stamp_tmp.name}")
-        # Verify file exists and is readable
-        if not os.path.exists(stamp_tmp.name):
-            raise Exception(f"Stamp temporary file {stamp_tmp.name} does not exist")
-        if not os.access(stamp_tmp.name, os.R_OK):
-            raise Exception(f"Stamp temporary file {stamp_tmp.name} is not readable")
-        st.write(f"Debug: Stamp file size: {os.path.getsize(stamp_tmp.name)} bytes")
+        stamp_io = io.BytesIO()
+        stamp_img.save(stamp_io, format="PNG")
+        stamp_io.seek(0)
 
-        # Process signature image
-        st.write("Debug: Converting signature image to PNG and saving to temp file")
         signature_img = Image.open(signature_data)
-        signature_img.save(signature_tmp.name, format="PNG")
-        signature_tmp.close()  # Close the file to ensure it's written
-        st.write(f"Debug: Signature image saved to {signature_tmp.name}")
-        # Verify file exists and is readable
-        if not os.path.exists(signature_tmp.name):
-            raise Exception(f"Signature temporary file {signature_tmp.name} does not exist")
-        if not os.access(signature_tmp.name, os.R_OK):
-            raise Exception(f"Signature temporary file {signature_tmp.name} is not readable")
-        st.write(f"Debug: Signature file size: {os.path.getsize(signature_tmp.name)} bytes")
+        signature_io = io.BytesIO()
+        signature_img.save(signature_io, format="PNG")
+        signature_io.seek(0)
 
         # Add the stamp at the end of the document
-        st.write("Debug: Adding stamp paragraph")
         stamp_paragraph = doc.add_paragraph()
         stamp_run = stamp_paragraph.add_run()
-        try:
-            st.write(f"Debug: Attempting to add stamp picture from {stamp_tmp.name}")
-            stamp_picture = stamp_run.add_picture(stamp_tmp.name, width=Inches(2.17), height=Inches(2.17))
-            stamp_rel_id = stamp_run.part.rels[-1].rId if stamp_run.part.rels else None
-            st.write(f"Debug: Stamp picture added with relationship ID: {stamp_rel_id}")
-        except Exception as e:
-            st.write(f"Debug: Failed to add stamp picture: {str(e)}")
-            raise Exception(f"Failed to add stamp picture: {str(e)}")
+        stamp_picture = stamp_run.add_picture(stamp_io, width=Inches(2.17), height=Inches(2.17))
 
         # Access the run's XML element to find the drawing element
         stamp_run_element = stamp_run._r
@@ -406,18 +339,16 @@ def add_paid_stamp_and_signature(doc_path):
         if not stamp_drawing_elements:
             raise Exception("Could not find drawing element for stamp image")
         stamp_drawing = stamp_drawing_elements[0]
-        st.write("Debug: Stamp drawing element found")
 
         # Find the a:graphic element to preserve the image data
         graphic_elements = stamp_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
-        st.write("Debug: Stamp graphic element extracted")
 
-        # Adjusted positions for stamp (considering 1-inch left margin)
-        stamp_horizontal = (5.09 - 1.0) * 914400  # Adjusted for 1-inch left margin
-        stamp_vertical = (6.64 - 1.0) * 914400   # Adjusted for 1-inch top margin
+        # Use desired positions for stamp
+        stamp_horizontal = 5.09 * 914400  # 5.09" in EMUs
+        stamp_vertical = 6.64 * 914400    # 6.64" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
@@ -441,23 +372,11 @@ def add_paid_stamp_and_signature(doc_path):
                 </wp:anchor>
             </w:drawing>
         """))
-        st.write("Debug: Stamp positioned successfully")
-
-        # Debug relationships after adding stamp
-        debug_relationships(doc, "After adding stamp")
 
         # Add the signature at the end of the document
-        st.write("Debug: Adding signature paragraph")
         signature_paragraph = doc.add_paragraph()
         signature_run = signature_paragraph.add_run()
-        try:
-            st.write(f"Debug: Attempting to add signature picture from {signature_tmp.name}")
-            signature_picture = signature_run.add_picture(signature_tmp.name, width=Inches(1.92), height=Inches(1.92))
-            signature_rel_id = signature_run.part.rels[-1].rId if signature_run.part.rels else None
-            st.write(f"Debug: Signature picture added with relationship ID: {signature_rel_id}")
-        except Exception as e:
-            st.write(f"Debug: Failed to add signature picture: {str(e)}")
-            raise Exception(f"Failed to add signature picture: {str(e)}")
+        signature_picture = signature_run.add_picture(signature_io, width=Inches(1.92), height=Inches(1.92))
 
         # Access the run's XML element to find the drawing element
         signature_run_element = signature_run._r
@@ -465,18 +384,16 @@ def add_paid_stamp_and_signature(doc_path):
         if not signature_drawing_elements:
             raise Exception("Could not find drawing element for signature image")
         signature_drawing = signature_drawing_elements[0]
-        st.write("Debug: Signature drawing element found")
 
         # Find the a:graphic element to preserve the image data
         graphic_elements = signature_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
-        st.write("Debug: Signature graphic element extracted")
 
-        # Adjusted positions for signature (considering 1-inch left and top margins)
-        signature_horizontal = (5.64 - 1.0) * 914400  # Adjusted for 1-inch left margin
-        signature_vertical = (8.11 - 1.0) * 914400    # Adjusted for 1-inch top margin
+        # Use desired positions for signature
+        signature_horizontal = 5.64 * 914400  # 5.64" in EMUs
+        signature_vertical = 8.11 * 914400    # 8.11" in EMUs
 
         # Replace the inline drawing with an anchored one for absolute positioning
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
@@ -500,33 +417,26 @@ def add_paid_stamp_and_signature(doc_path):
                 </wp:anchor>
             </w:drawing>
         """))
-        st.write("Debug: Signature positioned successfully")
 
-        # Clean up temporary files
-        if os.path.exists(stamp_tmp.name):
-            os.remove(stamp_tmp.name)
-            st.write(f"Debug: Cleaned up temporary stamp file {stamp_tmp.name}")
-        if os.path.exists(signature_tmp.name):
-            os.remove(signature_tmp.name)
-            st.write(f"Debug: Cleaned up temporary signature file {signature_tmp.name}")
+        # Verify that the header still contains the logo
+        for section in doc.sections:
+            header = section.header
+            if not header.paragraphs:
+                continue
+            has_image = False
+            for paragraph in header.paragraphs:
+                for run in paragraph.runs:
+                    if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict'):
+                        has_image = True
+                        break
+                if has_image:
+                    break
+            if not has_image:
+                raise Exception("Header logo is missing after adding stamp and signature")
 
-        # Debug relationships after adding signature
-        debug_relationships(doc, "After adding signature")
-
-        # Save the modified document back to the same path
-        doc.save(doc_path)
-        st.write("Debug: add_paid_stamp_and_signature completed successfully")
-        return doc_path
+        return doc
 
     except Exception as e:
-        # Clean up temporary files in case of failure
-        if 'stamp_tmp' in locals() and os.path.exists(stamp_tmp.name):
-            os.remove(stamp_tmp.name)
-            st.write(f"Debug: Cleaned up temporary stamp file {stamp_tmp.name} after error")
-        if 'signature_tmp' in locals() and os.path.exists(signature_tmp.name):
-            os.remove(signature_tmp.name)
-            st.write(f"Debug: Cleaned up temporary signature file {signature_tmp.name} after error")
-        st.write(f"Debug: Error in add_paid_stamp_and_signature: {str(e)}")
         raise Exception(f"Failed to add stamp and signature: {str(e)}")
 
 def get_next_invoice_number():
@@ -579,7 +489,6 @@ def sanitize_filename(name):
     return re.sub(r'[<>:"/\\|?*]', '_', name).replace(' ', '_')
 
 def generate_invoice(invoice_data):
-    # Step 1: Generate the invoice without stamp and signature
     doc = Document('Invoice_Template_MarketixLab.docx')
     replacements = {**invoice_data.client_info, **invoice_data.invoice_details, **invoice_data.financials}
     if invoice_data.apply_late_fee:
@@ -591,44 +500,34 @@ def generate_invoice(invoice_data):
     doc = update_items_table(doc, invoice_data.items)
     style_financial_table(doc, invoice_data)
 
-    # Set font for all paragraphs
+    if invoice_data.mark_as_paid:
+        doc = add_paid_stamp_and_signature(doc)
+
     for paragraph in doc.paragraphs:
         for run in paragraph.runs:
             run.font.name = "Courier New"
             run._element.rPr.rFonts.set(qn('w:eastAsia'), "Courier New")
-
-    # Save the intermediate document to a temporary file
-    temp_docx = f"temp_{invoice_data.invoice_number}_intermediate.docx"
-    doc.save(temp_docx)
-    st.write(f"Debug: Intermediate document saved to {temp_docx}")
-
-    # Step 2: Add stamp and signature if marked as paid
-    if invoice_data.mark_as_paid:
-        add_paid_stamp_and_signature(temp_docx)
-
-    # Step 3: Load the final document for DOCX output
-    final_doc = Document(temp_docx)
+    
     docx_output = io.BytesIO()
-    final_doc.save(docx_output)
+    doc.save(docx_output)
     docx_output.seek(0)
-
-    # Step 4: Convert to PDF
+    
+    temp_docx = f"temp_{invoice_data.invoice_number}.docx"
     temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
+    doc.save(temp_docx)
+    
     pypandoc.convert_file(temp_docx, 'pdf', outputfile=temp_pdf)
     
     pdf_output = io.BytesIO()
     with open(temp_pdf, 'rb') as f:
         pdf_output.write(f.read())
     pdf_output.seek(0)
-
-    # Clean up temporary files
+    
     if os.path.exists(temp_docx):
         os.remove(temp_docx)
-        st.write(f"Debug: Cleaned up temporary file {temp_docx}")
     if os.path.exists(temp_pdf):
         os.remove(temp_pdf)
-        st.write(f"Debug: Cleaned up temporary file {temp_pdf}")
-
+    
     # Generate file names based on paid status and client name
     client_name = sanitize_filename(invoice_data.client_info['{{client_name}}'])
     prefix = "Paid_Invoice" if invoice_data.mark_as_paid else "Invoice"
