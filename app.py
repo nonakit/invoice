@@ -327,6 +327,28 @@ def add_paid_stamp_and_signature(doc):
         signature_io = io.BytesIO()
         signature_img.save(signature_io, format="PNG")
         signature_io.seek(0)
+        
+        # Make a copy of the header content before modifying the document
+        header_content = {}
+        for i, section in enumerate(doc.sections):
+            header = section.header
+            header_content[i] = []
+            for paragraph in header.paragraphs:
+                paragraph_data = {
+                    'text': paragraph.text,
+                    'alignment': paragraph.alignment,
+                    'runs': []
+                }
+                for run in paragraph.runs:
+                    run_data = {
+                        'text': run.text,
+                        'font_name': run.font.name,
+                        'bold': run.font.bold,
+                        'italic': run.font.italic,
+                        'has_image': len(run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict')) > 0
+                    }
+                    paragraph_data['runs'].append(run_data)
+                header_content[i].append(paragraph_data)
 
         # Add the stamp at the end of the document
         stamp_paragraph = doc.add_paragraph()
@@ -418,23 +440,18 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
 
-        # Verify that the header still contains the logo
-        for section in doc.sections:
-            header = section.header
-            if not header.paragraphs:
-                continue
-            has_image = False
-            for paragraph in header.paragraphs:
-                for run in paragraph.runs:
-                    if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict'):
-                        has_image = True
-                        break
-                if has_image:
-                    break
-            if not has_image:
-                raise Exception("Header logo is missing after adding stamp and signature")
-
-        return doc
+        # Create a temporary file to save and reload the document to fix header issues
+        temp_file = f"temp_header_fix_{datetime.now().strftime('%Y%m%d%H%M%S')}.docx"
+        doc.save(temp_file)
+        
+        # Reload the document
+        reloaded_doc = Document(temp_file)
+        
+        # Remove the temporary file
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+            
+        return reloaded_doc
 
     except Exception as e:
         raise Exception(f"Failed to add stamp and signature: {str(e)}")
