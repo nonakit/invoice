@@ -1,1 +1,3 @@
 libreoffice
+libreoffice-java-common
+fonts-dejavu
