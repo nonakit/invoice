@@ -11,16 +11,15 @@ from docx.oxml import parse_xml
 from docx.oxml.ns import nsdecls
 import io
 import os
-import pypandoc
 import json
 import requests
 from PIL import Image
-import io
 import re
 import lxml.etree as ET
 import tempfile
 import zipfile
 import shutil
+from docx2pdf import convert
 
 # Set page config as the FIRST Streamlit command
 st.set_page_config(page_title="Invoice Generator", page_icon="📄", layout="wide")
@@ -333,17 +332,22 @@ def generate_invoice(invoice_data):
     doc.save(docx_output)
     docx_output.seek(0)
     
+    # Save DOCX to a temporary file for PDF conversion
     temp_docx = f"temp_{invoice_data.invoice_number}.docx"
     temp_pdf = f"temp_{invoice_data.invoice_number}.pdf"
-    doc.save(temp_docx)
+    with open(temp_docx, 'wb') as f:
+        f.write(docx_output.getvalue())
     
-    pypandoc.convert_file(temp_docx, 'pdf', outputfile=temp_pdf)
+    # Convert DOCX to PDF using docx2pdf
+    convert(temp_docx, temp_pdf)
     
+    # Read PDF into BytesIO
     pdf_output = io.BytesIO()
     with open(temp_pdf, 'rb') as f:
         pdf_output.write(f.read())
     pdf_output.seek(0)
     
+    # Clean up temporary files
     if os.path.exists(temp_docx):
         os.remove(temp_docx)
     if os.path.exists(temp_pdf):
@@ -366,7 +370,7 @@ SIGNATURE_URL = "https://drive.google.com/uc?export=download&id=1b6Dcg4spQmvLUMd
 def fetch_image(url):
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472. chisel Safari/537.36"
         }
         session = requests.Session()
         response = session.get(url, headers=headers, stream=True, allow_redirects=True)
