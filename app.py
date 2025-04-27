@@ -236,15 +236,15 @@ def update_items_table(doc, items):
         for i, cell in enumerate(row.cells):
             apply_cell_style(cell)
             alignments = [WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.RIGHT, 
-                         WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.RIGHT]
-            for paragraph in cell.paragraphs:
-                paragraph.alignment = alignments[i]
+                         WD_ALIGN_PARAGRAPH.CENTER, WDALIGN_PARAGRAPH.RIGHT]
+        for paragraph in cell.paragraphs:
+            paragraph.alignment = alignments[i]
     items_table._tbl.remove(placeholder_row._tr)
     return doc
 
 def style_financial_table(doc, invoice_data):
     financial_table = doc.tables[1]
-    for Rowling in financial_table.rows:
+    for row in financial_table.rows:
         for cell in row.cells:
             set_white_borders(cell)
             set_cell_font(cell)
@@ -316,17 +316,15 @@ def fetch_image(url):
 
 def add_paid_stamp_and_signature(doc):
     try:
-        # Step 1: Save the original document to a temporary file
-        temp_original = f"temp_original_{datetime.now().strftime('%Y%m%d%H%M%S')}.docx"
-        doc.save(temp_original)
-
-        # Step 2: Fetch images and save to temporary files
+        # Fetch images from the URLs
         stamp_data = fetch_image(PAID_STAMP_URL)
         signature_data = fetch_image(SIGNATURE_URL)
 
+        # Save images to temporary files
         stamp_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
         signature_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
 
+        # Process stamp image
         stamp_img = Image.open(stamp_data)
         stamp_img.save(stamp_tmp.name, format="PNG")
         stamp_tmp.close()
@@ -335,6 +333,7 @@ def add_paid_stamp_and_signature(doc):
         if not os.access(stamp_tmp.name, os.R_OK):
             raise Exception(f"Stamp temporary file {stamp_tmp.name} is not readable")
 
+        # Process signature image
         signature_img = Image.open(signature_data)
         signature_img.save(signature_tmp.name, format="PNG")
         signature_tmp.close()
@@ -343,25 +342,29 @@ def add_paid_stamp_and_signature(doc):
         if not os.access(signature_tmp.name, os.R_OK):
             raise Exception(f"Signature temporary file {signature_tmp.name} is not readable")
 
-        # Step 3: Add the stamp image
+        # Add the stamp at the end of the document
         stamp_paragraph = doc.add_paragraph()
         stamp_run = stamp_paragraph.add_run()
         stamp_picture = stamp_run.add_picture(stamp_tmp.name, width=Inches(2.17), height=Inches(2.17))
 
+        # Access the run's XML element to find the drawing element
         stamp_run_element = stamp_run._r
         stamp_drawing_elements = stamp_run_element.xpath('.//w:drawing')
         if not stamp_drawing_elements:
             raise Exception("Could not find drawing element for stamp image")
         stamp_drawing = stamp_drawing_elements[0]
 
+        # Find the a:graphic element to preserve the image data
         graphic_elements = stamp_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in stamp drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
+        # Use desired positions for stamp
         stamp_horizontal = 5.09 * 914400  # 5.09" in EMUs
         stamp_vertical = 6.64 * 914400    # 6.64" in EMUs
 
+        # Replace the inline drawing with an anchored one using "In Front of Text" wrapping
         stamp_drawing.getparent().replace(stamp_drawing, parse_xml(f"""
             <w:drawing
                 xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -376,7 +379,7 @@ def add_paid_stamp_and_signature(doc):
                     </wp:positionV>
                     <wp:extent cx="{int(2.17 * 914400)}" cy="{int(2.17 * 914400)}"/>
                     <wp:effectExtent l="0" t="0" r="0" b="0"/>
-                    <wp:wrapNone/>
+                    <wp:wrapTopAndBottom/>
                     <wp:docPr id="1" name="Picture 1"/>
                     <wp:cNvGraphicFramePr/>
                     {graphic_xml}
@@ -384,25 +387,29 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
 
-        # Step 4: Add the signature image
+        # Add the signature at the end of the document
         signature_paragraph = doc.add_paragraph()
         signature_run = signature_paragraph.add_run()
         signature_picture = signature_run.add_picture(signature_tmp.name, width=Inches(1.92), height=Inches(1.92))
 
+        # Access the run's XML element to find the drawing element
         signature_run_element = signature_run._r
         signature_drawing_elements = signature_run_element.xpath('.//w:drawing')
         if not signature_drawing_elements:
             raise Exception("Could not find drawing element for signature image")
         signature_drawing = signature_drawing_elements[0]
 
+        # Find the a:graphic element to preserve the image data
         graphic_elements = signature_drawing.xpath('.//a:graphic', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})
         if not graphic_elements:
             raise Exception("Could not find a:graphic element in signature drawing")
         graphic_xml = ET.tostring(graphic_elements[0], encoding='unicode').replace('\n', '')
 
+        # Use desired positions for signature
         signature_horizontal = 5.64 * 914400  # 5.64" in EMUs
         signature_vertical = 8.11 * 914400    # 8.11" in EMUs
 
+        # Replace the inline drawing with an anchored one using "In Front of Text" wrapping
         signature_drawing.getparent().replace(signature_drawing, parse_xml(f"""
             <w:drawing
                 xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -417,7 +424,7 @@ def add_paid_stamp_and_signature(doc):
                     </wp:positionV>
                     <wp:extent cx="{int(1.92 * 914400)}" cy="{int(1.92 * 914400)}"/>
                     <wp:effectExtent l="0" t="0" r="0" b="0"/>
-                    <wp:wrapNone/>
+                    <wp:wrapTopAndBottom/>
                     <wp:docPr id="2" name="Picture 2"/>
                     <wp:cNvGraphicFramePr/>
                     {graphic_xml}
@@ -425,79 +432,20 @@ def add_paid_stamp_and_signature(doc):
             </w:drawing>
         """))
 
-        # Step 5: Save the modified document to a temporary file
-        temp_modified = f"temp_modified_{datetime.now().strftime('%Y%m%d%H%M%S')}.docx"
-        doc.save(temp_modified)
+        # Clean up temporary files
+        if os.path.exists(stamp_tmp.name):
+            os.remove(stamp_tmp.name)
+        if os.path.exists(signature_tmp.name):
+            os.remove(signature_tmp.name)
 
-        # Step 6: Extract header-related files from the original document
-        original_extract_dir = f"temp_original_extract_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        modified_extract_dir = f"temp_modified_extract_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-        with zipfile.ZipFile(temp_original, 'r') as zip_ref:
-            zip_ref.extractall(original_extract_dir)
-
-        with zipfile.ZipFile(temp_modified, 'r') as zip_ref:
-            zip_ref.extractall(modified_extract_dir)
-
-        # Step 7: Copy header-related files from original to modified
-        # Copy header XML (e.g., word/header1.xml)
-        header_files = [f for f in os.listdir(os.path.join(original_extract_dir, 'word')) if f.startswith('header')]
-        for header_file in header_files:
-            src_path = os.path.join(original_extract_dir, 'word', header_file)
-            dst_path = os.path.join(modified_extract_dir, 'word', header_file)
-            shutil.copy2(src_path, dst_path)
-
-        # Copy header relationships (word/_rels/header1.xml.rels)
-        rels_dir = os.path.join(original_extract_dir, 'word', '_rels')
-        if os.path.exists(rels_dir):
-            header_rels_files = [f for f in os.listdir(rels_dir) if f.startswith('header') and f.endswith('.rels')]
-            for rels_file in header_rels_files:
-                src_path = os.path.join(original_extract_dir, 'word', '_rels', rels_file)
-                dst_path = os.path.join(modified_extract_dir, 'word', '_rels', rels_file)
-                shutil.copy2(src_path, dst_path)
-
-        # Copy media files (word/media/*) to ensure the logo image is preserved
-        media_dir_original = os.path.join(original_extract_dir, 'word', 'media')
-        media_dir_modified = os.path.join(modified_extract_dir, 'word', 'media')
-        if os.path.exists(media_dir_original):
-            if not os.path.exists(media_dir_modified):
-                os.makedirs(media_dir_modified)
-            for media_file in os.listdir(media_dir_original):
-                src_path = os.path.join(media_dir_original, media_file)
-                dst_path = os.path.join(media_dir_modified, media_file)
-                if not os.path.exists(dst_path):  # Only copy if not already present
-                    shutil.copy2(src_path, dst_path)
-
-        # Step 8: Rebuild the modified .docx file
-        temp_final = f"temp_final_{datetime.now().strftime('%Y%m%d%H%M%S')}.docx"
-        with zipfile.ZipFile(temp_final, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
-            for root, dirs, files in os.walk(modified_extract_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, modified_extract_dir)
-                    zip_ref.write(file_path, arcname)
-
-        # Step 9: Load the final document
-        final_doc = Document(temp_final)
-
-        # Step 10: Clean up temporary files and directories
-        for temp_file in [temp_original, temp_modified, temp_final, stamp_tmp.name, signature_tmp.name]:
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
-        for temp_dir in [original_extract_dir, modified_extract_dir]:
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
-
-        return final_doc
+        return doc
 
     except Exception as e:
-        # Clean up in case of failure
-        for temp_file in [temp_original, temp_modified, temp_final, stamp_tmp.name, signature_tmp.name]:
-            if 'temp_file' in locals() and os.path.exists(temp_file):
-                os.remove(temp_file)
-        for temp_dir in [original_extract_dir, modified_extract_dir]:
-            if 'temp_dir' in locals() and os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
+        # Clean up temporary files in case of failure
+        if 'stamp_tmp' in locals() and os.path.exists(stamp_tmp.name):
+            os.remove(stamp_tmp.name)
+        if 'signature_tmp' in locals() and os.path.exists(signature_tmp.name):
+            os.remove(signature_tmp.name)
         raise Exception(f"Failed to add stamp and signature: {str(e)}")
 
 def get_next_invoice_number():
